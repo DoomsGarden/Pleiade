@@ -2,11 +2,11 @@
 
 Pléiade es un motor gráfico propio. Este repositorio conserva el visor WebGL 2, su paquete Android y la fuente C++ recuperada de la base PC.
 
-## Android `0.000.00.009`
+## Android `0.000.00.010`
 
-La APK de prueba incluye el visor y los recursos para usarlo sin conexión. Arranca en modo Ahorro. Requiere Android 7 o posterior y un WebView actualizado con WebGL 2. [Descargar desde GitHub Releases](https://github.com/DoomsGarden/Pleiade/releases/tag/v0.000.00.009)
+La APK de prueba incluye el visor y los recursos para usarlo sin conexión. Arranca en modo Ahorro. Requiere Android 7 o posterior y un WebView actualizado con WebGL 2. [Descargar desde GitHub Releases](https://github.com/DoomsGarden/Pleiade/releases/tag/v0.000.00.010)
 
-La firma del paquete y los recursos están verificados. La instalación y los FPS siguen pendientes de prueba en el POCO F7 y la Galaxy Tab A9+. El visor y la APK comparten la numeración `0.000.00.000`.
+En **Materiales** se pueden ver de cerca las agujas, las frondes, las flores y la corteza. **Biomas** abre cinco paisajes que se regeneran con la semilla del mundo. La instalación y los FPS de esta revisión siguen pendientes de prueba en el POCO F7 y la Galaxy Tab A9+. El visor y la APK comparten la numeración `0.000.00.000`.
 
 ## Archivos del proyecto
 
@@ -14,6 +14,7 @@ La firma del paquete y los recursos están verificados. La instalación y los FP
 | --- | --- |
 | `dist/` | Visor WebGL 2 y recursos listos para servir. |
 | `android/` | Contenedor Android y script para compilar y firmar. |
+| `assets/blender/` | Biblioteca editable de materiales y escena de muestras. |
 | `tools/desktop-source/` | Renderer y generación procedural C++ de la base PC `0.003.0.17`, con los cambios recuperados. |
 | `tools/` | Exportador de escenas y preparación de materiales y shaders. |
 | `tests/` | Pruebas y resultados de render de las revisiones recuperadas. |
@@ -34,6 +35,17 @@ Para las pruebas, instala las dependencias de Python en tu entorno y ejecuta los
 python3 -m pip install -r requirements.txt
 npm test
 PLEIADE_ANDROID_MOCK=1 node tests/runtime_check.mjs
+```
+
+## Regenerar materiales y escenas
+
+Blender genera los mapas de color, opacidad, normales tangentes y rugosidad del atlas. El exportador C++ actualiza las mallas y las escenas de referencia del visor desde el renderer.
+
+```sh
+blender -b -t 2 -P tools/blender/bake_surfaces.py -- dist/assets assets/blender/pleiade-surfaces.blend
+python3 tools/prepare_shaders.py
+python3 tools/prepare_desktop_demo.py build/materials
+./build/pleiade-export-preview build/materials dist/assets
 ```
 
 ## Compilar Android

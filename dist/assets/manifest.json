@@ -1,6 +1,6 @@
 {
   "desktop_base": "0.003.0.17",
-  "viewer_version": "0.000.00.009",
+  "viewer_version": "0.000.00.010",
   "texture_size": 512,
   "material_sources": [
     {
@@ -37,11 +37,11 @@
       "height_source_mode": "I;16"
     }
   ],
-  "desktop_shader_sha256": "c1b25cd4157adef85770eeab2fb79faee46b8392199e3057f23763c6f2c3b9a8",
+  "desktop_shader_sha256": "d54e556d0edab4430b6544f3617442137e8b65590eeb5d105a0b25159dc1be21",
   "limits": [
-    "Escenas estáticas exportadas: no es el motor de juego completo.",
+    "Escenas de referencia y cinco biomas compactos por semilla.",
     "Texturas 512²; mapas PC 1024².",
-    "Sin streaming, FoW ni selección de capas por distancia.",
+    "Niveles de detalle por tamaño proyectado. Sin streaming de regiones ni FoW en el visor.",
     "Reflejos SSR experimentales, desactivados inicialmente.",
     "Sombras de contacto heredadas de PC: artefactos pendientes.",
     "Solo cámara exterior; agua sin simulación de fluidos."

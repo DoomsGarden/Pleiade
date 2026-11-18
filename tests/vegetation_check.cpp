@@ -63,10 +63,15 @@ static V3 rootEnd(const Object &part, float sign) {
 int main() {
     for (const MeshType mesh : vegetationMeshes) {
         size_t triangles = 0;
-        buildVegetationMesh(mesh, [&](V3 a, V3 b, V3 c, bool) {
+        buildVegetationMesh(mesh, [&](Vertex va, Vertex vb, Vertex vc, bool) {
+            const V3 a = va.p, b = vb.p, c = vc.p;
             assert(length(cross(b - a, c - a)) > 1e-8f);
-            for (V3 p : {a, b, c})
-                assert(std::max({std::abs(p.x), std::abs(p.y), std::abs(p.z)}) <= .501f);
+            for (const auto &vertex : {va, vb, vc}) {
+                const auto p = vertex.p;
+                assert(std::max({std::abs(p.x), std::abs(p.y), std::abs(p.z)}) <= .53f);
+                assert(std::abs(length(vertex.n) - 1) < .001f);
+                assert(vertex.u >= 0 && vertex.u <= 1 && vertex.v >= 0 && vertex.v <= 1);
+            }
             ++triangles;
         });
         assert(triangles > 0);
@@ -78,17 +83,19 @@ int main() {
     checkHierarchy(detailed.objects);
 
     const V3 base{4, shoreHeight(4, -3), -3};
-    for (TreeSpecies species : {TreeSpecies::Spruce, TreeSpecies::ScotsPine}) {
+    for (TreeSpecies species : {TreeSpecies::Spruce, TreeSpecies::ScotsPine, TreeSpecies::Birch}) {
         std::vector<Object> tree, repeat;
         appendTree(tree, species, base, 6, 47, shoreHeight);
         appendTree(repeat, species, base, 6, 47, shoreHeight);
         checkHierarchy(tree);
         assert(tree.size() == repeat.size());
+        assert(tree.front().mesh == MeshType::TreeTrunk && tree.front().visible);
         bool hasFork = false;
         int rootsFromCollar = 0;
         std::vector<int> rootChildren(tree.size());
         for (size_t i = 0; i < tree.size(); ++i) {
             assert(tree[i].gpu.model.v == repeat[i].gpu.model.v);
+            if (tree[i].vegetation == VegetationSection::Trunk) assert(!tree[i].visible);
             if (tree[i].vegetation != VegetationSection::Root)
                 continue;
             size_t parent = i - tree[i].parentDistance;

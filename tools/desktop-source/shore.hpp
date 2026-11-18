@@ -24,12 +24,13 @@ inline Scene makeShoreScene() {
     s.objects.back().half = {24, 3, 24};
     for (int i = 0; i < 7; ++i) {
         float x = 1.3f + float(i % 3) * 2.3f, z = -6 + float(i) * 2;
-        s.add(MeshType::Rock, {x, shoreHeight(x, z) + .3f, z}, {1.4f + float(i % 2) * .5f, 1.2f, 1.6f},
-              {.36f, .34f, .28f}, .8f, 0, 9);
+        s.add(MeshType::RockDetail, {x, shoreHeight(x, z) + .3f, z}, {1.4f + float(i % 2) * .5f, 1.2f, 1.6f},
+              {.94f, .92f, .85f}, .8f, 0, materialPattern(SurfaceLayer::Stone));
     }
+    const TreeSpecies trees[]{TreeSpecies::Spruce, TreeSpecies::ScotsPine, TreeSpecies::Birch, TreeSpecies::ScotsPine};
     for (int i = 0; i < 4; ++i) {
         float x = 5 + float(i % 2) * 4, z = -6 - float(i) * 2.3f, y = shoreHeight(x, z);
-        appendTree(s.objects, i % 2 == 0 ? TreeSpecies::Spruce : TreeSpecies::ScotsPine,
+        appendTree(s.objects, trees[i],
                    {x, y, z}, 6.6f + .45f * i, 401u + 73u * uint32_t(i), shoreHeight);
     }
     const GroundPlant plants[]{GroundPlant::Juniper, GroundPlant::Fern, GroundPlant::Bellflower};

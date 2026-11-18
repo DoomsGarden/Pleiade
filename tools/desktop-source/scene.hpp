@@ -32,9 +32,30 @@ enum class MeshType {
     PineNeedlesFar,
     JuniperNeedlesFar,
     FernFrondFar,
+    TreeTrunk,
+    BirchLeaves,
+    BirchLeavesFar,
+    BambooStem,
+    BambooLeaves,
+    PalmFrond,
+    BeveledBox,
+    TreeTrunkFar,
+    BambooStemFar,
+    BambooLeavesFar,
+    PalmFrondFar,
     Count
 };
 constexpr int meshCount = static_cast<int>(MeshType::Count);
+enum class SurfaceLayer {
+    PineNeedle, ConiferNeedle, FernPinna, Broadleaf, Petal, Bark, PineBark, Timber,
+    Masonry, Sand, Snow, Stone, Soil, Bamboo, PineSpray, ConiferSpray, Count
+};
+inline constexpr float materialPattern(SurfaceLayer layer) { return 20.f + float(layer); }
+inline constexpr float terrainPattern(SurfaceLayer layer) { return 40.f + float(layer); }
+struct Vertex {
+    V3 p, n;
+    float u = 0, v = 0;
+};
 enum class VegetationSection : uint8_t {
     None, Collar, Root, Trunk, PrimaryBranch, SecondaryBranch, Shoot, Foliage, Flower
 };
@@ -50,6 +71,7 @@ struct Object {
     int lodClass = 0; // 1 foliage, 2 grass, 3 fine vegetation
     VegetationSection vegetation = VegetationSection::None;
     uint16_t parentDistance = 0; // Backward offset in the contiguous plant objects, zero at the collar.
+    bool visible = true; // Logical sections may share a continuous rendered surface.
 };
 struct ObjectRegion {
     size_t begin = 0, end = 0;

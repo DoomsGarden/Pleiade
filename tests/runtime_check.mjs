@@ -5,7 +5,7 @@ const constants=new Map();const mk=()=>({id:++id});const methods={NO_ERROR:0,
  createFramebuffer:()=>{const f=mk();attachments.set(f,new Set());return f;},bindFramebuffer:(_,f)=>boundFbo=f,
  activeTexture:u=>activeUnit=u-gl.TEXTURE0,bindTexture:(_,t)=>textures.set(activeUnit,t),framebufferTexture2D:(_,__,___,t)=>attachments.get(boundFbo).add(t),
  createProgram:()=>({...mk(),samplers:new Map(),shaders:[]}),createShader:()=>mk(),shaderSource:(s,source)=>s.source=source,attachShader:(p,s)=>p.shaders.push(s),
- linkProgram:p=>{for(const s of p.shaders)for(const m of s.source.matchAll(/uniform sampler2D (\w+)/g))p.samplers.set(m[1],0);},getShaderParameter:()=>true,getProgramParameter:()=>true,
+ linkProgram:p=>{for(const s of p.shaders)for(const m of s.source.matchAll(/uniform sampler2D(?:Array)? (\w+)/g))p.samplers.set(m[1],0);},getShaderParameter:()=>true,getProgramParameter:()=>true,
  getUniformLocation:(p,n)=>({p,n}),uniform1i:(l,v)=>{uniformWrites.set(l.n,v);if(l.p.samplers.has(l.n))l.p.samplers.set(l.n,v);},
  uniform1f:(l,v)=>{assert(Number.isFinite(v));uniformWrites.set(l.n,v);},uniform3fv:(l,v)=>{assert(v.length===3&&Array.from(v).every(Number.isFinite));uniformWrites.set(l.n,[...v]);},
  uniformMatrix4fv:(_,__,m)=>assert(m.length===16&&Array.from(m).every(Number.isFinite),'finite matrix'),
@@ -15,7 +15,7 @@ const constants=new Map();const mk=()=>({id:++id});const methods={NO_ERROR:0,
 };function draw(){if(boundFbo)for(const unit of currentProgram.samplers.values())assert(!attachments.get(boundFbo).has(textures.get(unit)),'texture feedback loop');drawCalls++;}
 const gl=new Proxy(methods,{get(t,p){if(p in t)return t[p];if(/^[A-Z_0-9]+$/.test(p)){if(!constants.has(p))constants.set(p,100+constants.size);return constants.get(p);}return ()=>{};}});
 const elements=new Map();function el(id){if(!elements.has(id))elements.set(id,{id,hidden:false,checked:true,value:'balanced',width:0,height:0,textContent:'',dataset:{},listeners:{},style:{},classList:{toggle(){}},setAttribute(){},querySelector(){return el('child-'+id)},addEventListener(n,f){this.listeners[n]=f},getContext(){return gl},setPointerCapture(){}});return elements.get(id);}
-const buttons=['shore','materials','building'].map(name=>{const b=el(name);b.dataset.scene=name;return b;});
+const buttons=['shore','materials','building','biomes'].map(name=>{const b=el(name);b.dataset.scene=name;return b;});
 globalThis.document={hidden:false,getElementById:el,querySelectorAll:()=>buttons,addEventListener(){}};
 globalThis.window=globalThis;globalThis.innerWidth=1200;globalThis.innerHeight=800;globalThis.devicePixelRatio=2;globalThis.location={search:''};globalThis.addEventListener=()=>{};globalThis.requestAnimationFrame=()=>1;globalThis.cancelAnimationFrame=()=>{};
 const androidFiles=[];
@@ -62,6 +62,7 @@ globalThis.innerWidth=800;globalThis.innerHeight=1280;pleiade.render();assert(ca
 console.log('PASS: JS initialization, 9 scene/quality combinations, framebuffer feedback checks, finite matrices, pointer orbit/pinch/cancel and portrait resizing. Mock only; no WebGL GPU validation.');
 
 pleiade.useScene('shore');
+pleiade.camera.distance=3.5;
 pleiade.setQuality('balanced');submittedIndices=0;pleiade.render();
 const balancedIndices=submittedIndices;
 const inspectionCamera=pleiade.camera;
@@ -73,6 +74,15 @@ pleiade.render();assert.equal(canvas.height,640);assert(canvas.width<canvas.heig
 Object.assign(globalThis,{innerWidth:1536,innerHeight:960,devicePixelRatio:1});
 pleiade.render();assert.equal(canvas.width,640);assert(canvas.height<canvas.width);
 console.log('PASS: light foliage and stable camera with phone portrait and tablet landscape sizing.');
+
+for(const biome of ['forest','desert','snow','tropical','bamboo']){
+ pleiade.useBiome(biome);pleiade.render();
+ assert.equal(pleiade.state.scene,'biomes');assert.equal(pleiade.state.biome,biome);
+ assert(pleiade.report().biome.rocks>0);assert(pleiade.report().render.trianglesPerPass>0);
+ if(biome!=='desert')assert(pleiade.report().biome.plants>0);
+}
+pleiade.useScene('shore');
+console.log('PASS: all five procedural biomes select, build and render through the resource mock.');
 
 const original=JSON.parse(JSON.stringify(pleiade.world));
 pleiade.applyWorld({...original,elapsedDays:0});pleiade.render();assert.equal(uniformWrites.get('uDaylight'),0);const night=uniformWrites.get('uLightColor');

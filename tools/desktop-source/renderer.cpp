@@ -70,6 +70,9 @@ Mesh Renderer::makeMesh(const std::vector<Vertex> &verts, const std::vector<uint
     gl.EnableVertexAttribArray(1);
     gl.VertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
                            reinterpret_cast<void *>(offsetof(Vertex, n)));
+    gl.EnableVertexAttribArray(8);
+    gl.VertexAttribPointer(8, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                           reinterpret_cast<void *>(offsetof(Vertex, u)));
     gl.BindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.ebo);
     gl.BufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(uint32_t), indices.data(),
                   GL_STATIC_DRAW);
@@ -120,6 +123,24 @@ Renderer::Renderer(int w, int h, int shadowResolution, bool gpuTiming, const std
             gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
             gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
         }
+    constexpr int layerSize = 256, layerCount = int(SurfaceLayer::Count);
+    const std::array layerFiles{assets / "surfaces-color.rgba", assets / "surfaces-normal.rgba"};
+    if (std::filesystem::exists(layerFiles[0]) && std::filesystem::exists(layerFiles[1])) {
+        gl.GenTextures(2, surfaceTextures.data());
+        std::vector<uint8_t> pixels(layerSize * layerSize * layerCount * 4);
+        for (int i = 0; i < 2; ++i) {
+            std::ifstream input(layerFiles[i], std::ios::binary);
+            if (!input.read(reinterpret_cast<char *>(pixels.data()), pixels.size()) ||
+                input.peek() != std::char_traits<char>::eof())
+                throw std::runtime_error("Invalid surface layers: " + layerFiles[i].string());
+            gl.BindTexture(GL_TEXTURE_2D_ARRAY, surfaceTextures[i]);
+            gl.TexImage3D(GL_TEXTURE_2D_ARRAY, 0, i == 0 ? GL_SRGB8_ALPHA8 : GL_RGBA8,
+                          layerSize, layerSize, layerCount, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+            gl.TexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            gl.TexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            gl.GenerateMipmap(GL_TEXTURE_2D_ARRAY);
+        }
+    }
     sceneProgram = program(shader::geometry, shader::material);
     std::string impostorSource(shader::material);
     impostorSource.insert(impostorSource.find('\n') + 1, "#define DEPTH_IMPOSTOR\n");
@@ -130,6 +151,12 @@ Renderer::Renderer(int w, int h, int shadowResolution, bool gpuTiming, const std
     for (int i = 0; i < 12; ++i)
         impostorLoc[i] = gl.GetUniformLocation(impostorProgram, names[i]);
     shadowProgram = program(shader::geometry, shader::shadow);
+    for (GLuint id : {sceneProgram, shadowProgram, impostorProgram}) {
+        gl.UseProgram(id);
+        gl.Uniform1i(gl.GetUniformLocation(id, "uSurfaceColor"), 14);
+        gl.Uniform1i(gl.GetUniformLocation(id, "uSurfaceNormal"), 15);
+        gl.Uniform1i(gl.GetUniformLocation(id, "uSurfaceMaps"), surfaceTextures[0] != 0);
+    }
     compositeProgram = program(shader::fullscreen, shader::composite);
     uiProgram = program(shader::uiVert, shader::uiFrag);
     loc = {gl.GetUniformLocation(sceneProgram, "uVP"),
@@ -269,12 +296,41 @@ Renderer::Renderer(int w, int h, int shadowResolution, bool gpuTiming, const std
         if (twoSided)
             indices.insert(indices.end(), {start + 2, start + 1, start});
     };
+    auto textTriangle = [&](Vertex a, Vertex b, Vertex c, bool twoSided) {
+        uint32_t start = static_cast<uint32_t>(vertices.size());
+        vertices.insert(vertices.end(), {a, b, c});
+        indices.insert(indices.end(), {start, start + 1, start + 2});
+        if (twoSided) indices.insert(indices.end(), {start + 2, start + 1, start});
+    };
     for (MeshType mesh : vegetationMeshes) {
         vertices.clear();
         indices.clear();
-        buildVegetationMesh(mesh, tri);
+        buildVegetationMesh(mesh, textTriangle);
         meshes[static_cast<int>(mesh)] = makeMesh(vertices, indices);
     }
+    vertices.clear();
+    indices.clear();
+    for (V3 face : normals) {
+        const V3 u = std::abs(face.y) > .5f ? V3{1, 0, 0} : unit(cross({0, 1, 0}, face));
+        const V3 v = cross(face, u);
+        constexpr float radius = .061f, inner = .5f - radius;
+        constexpr float samples[]{-.5f, -inner, inner, .5f};
+        auto bevel = [&](float x, float y) {
+            const V3 p = face * .5f + u * x + v * y;
+            const V3 core{std::clamp(p.x, -inner, inner), std::clamp(p.y, -inner, inner),
+                          std::clamp(p.z, -inner, inner)};
+            const V3 n = unit(p - core);
+            return Vertex{core + n * radius, n, x + .5f, y + .5f};
+        };
+        for (int y = 0; y < 3; ++y)
+            for (int x = 0; x < 3; ++x) {
+                Vertex a = bevel(samples[x], samples[y]), b = bevel(samples[x + 1], samples[y]);
+                Vertex c = bevel(samples[x], samples[y + 1]), d = bevel(samples[x + 1], samples[y + 1]);
+                textTriangle(a, b, c, false);
+                textTriangle(b, d, c, false);
+            }
+    }
+    meshes[static_cast<int>(MeshType::BeveledBox)] = makeMesh(vertices, indices);
     for (int tier = 0; tier < 2; ++tier) {
         vertices.clear();
         indices.clear();
@@ -318,20 +374,6 @@ Renderer::Renderer(int w, int h, int shadowResolution, bool gpuTiming, const std
     gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    vertices.clear();
-    indices.clear();
-    for (int i = 0; i < 10; ++i) {
-        float a = i * 2 * pi / 10, b = (i + 1) * 2 * pi / 10;
-        V3 p0{.5f * std::cos(a), -.5f, .5f * std::sin(a)},
-            p1{.5f * std::cos(b), -.5f, .5f * std::sin(b)};
-        V3 p2{.27f * std::cos(a), .5f, .27f * std::sin(a)},
-            p3{.27f * std::cos(b), .5f, .27f * std::sin(b)};
-        tri(p0, p2, p1);
-        tri(p1, p2, p3);
-        tri({0, .5f, 0}, p3, p2);
-        tri({0, -.5f, 0}, p0, p1);
-    }
-    meshes[static_cast<int>(MeshType::Branch)] = makeMesh(vertices, indices);
     vertices.clear();
     indices.clear();
     for (int i = 0; i < 9; ++i) {
@@ -436,6 +478,7 @@ Renderer::~Renderer() {
     if (visibilityTexture)
         gl.DeleteTextures(1, &visibilityTexture);
     gl.DeleteTextures(6, materialTextures.data());
+    gl.DeleteTextures(2, surfaceTextures.data());
     gl.DeleteTextures(1, &canopyTexture);
     gl.DeleteTextures(4, targets.data());
     gl.DeleteTextures(1, &shadowTexture);
@@ -521,6 +564,10 @@ RenderStats Renderer::render(const Scene &scene, const Camera &camera, bool cull
     gl.Enable(GL_DEPTH_TEST);
     gl.Enable(GL_CULL_FACE);
     gl.Disable(GL_BLEND);
+    for (int i = 0; i < 2; ++i) {
+        gl.ActiveTexture(GL_TEXTURE0 + 14 + i);
+        gl.BindTexture(GL_TEXTURE_2D_ARRAY, surfaceTextures[i]);
+    }
     RenderStats stats;
     auto stateEnd = stamp();
     stats.trace.state = renderMs(renderBegin, stateEnd);
@@ -536,9 +583,13 @@ RenderStats Renderer::render(const Scene &scene, const Camera &camera, bool cull
         for (auto &v : visible)
             v.clear();
         Frustum sf(lightVP);
-        for (auto &o : scene.objects)
-            if (o.lodClass != 2 && sf.visible(o.center, o.half))
-                visible[static_cast<int>(o.mesh)].push_back(o.gpu);
+        for (auto &o : scene.objects) {
+            if (!o.visible || o.lodClass == 2 || !sf.visible(o.center, o.half)) continue;
+            const auto mesh = lod && surfaceTextures[0] ? vegetationFarMesh(o.mesh) : o.mesh;
+            Instance part = o.gpu;
+            part.surface.z = foliageMaterialForMesh(mesh, part.surface.z);
+            visible[static_cast<int>(mesh)].push_back(part);
+        }
         prepareEnd = stamp();
         gl.BindFramebuffer(GL_FRAMEBUFFER, shadowFbo);
         gl.Viewport(0, 0, shadowSize, shadowSize);
@@ -571,6 +622,7 @@ RenderStats Renderer::render(const Scene &scene, const Camera &camera, bool cull
     for (auto &v : visible)
         v.clear();
     auto visit = [&](const Object &o) {
+        if (!o.visible) return;
         ++stats.objectCandidates;
         if (visibilityMap && visibilityCulling && o.mesh != MeshType::Terrain &&
             !visibilityMap->exploredBounds(o.center, o.half + V3{2, 0, 2})) {
@@ -640,15 +692,16 @@ RenderStats Renderer::render(const Scene &scene, const Camera &camera, bool cull
             ++stats.lodFar;
         }
         const MeshType farVegetation = vegetationFarMesh(mesh);
-        if (lod && mesh != farVegetation) {
+        if (lod && surfaceTextures[0] && mesh != farVegetation) {
             const float pixels = canopyPixels(camera, float(height), o.center, o.half * 2);
-            if (pixels < 18) {
+            if (pixels < 94) {
                 mesh = farVegetation;
                 ++stats.lodFar;
             }
         }
         Instance instance = o.gpu;
-        if (materials && o.mesh == MeshType::Branch && instance.surface.w == 0)
+        instance.surface.z = foliageMaterialForMesh(mesh, instance.surface.z);
+        if (materials && o.mesh == MeshType::Branch && instance.surface.z == 5 && instance.surface.w == 0)
             instance.surface.w = -1;
         if (materials && scene.materialShowcase && o.mesh == MeshType::Rock)
             mesh = MeshType::RockDetail;

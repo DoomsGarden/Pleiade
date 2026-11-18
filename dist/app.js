@@ -1,8 +1,9 @@
 import {generateWorld,validateWorld,celestialFrame,starAtlas,cloudTransmission} from './celestial.js';
+import {biomes,createBiome} from './biomes.js';
 const $=id=>document.getElementById(id), canvas=$('view');
-const VERSION='0.000.00.009';
+const VERSION='0.000.00.010';
 const params=new URLSearchParams(location.search);
-const state={ready:false,scene:'shore',quality:window.PleiadeAndroid?'eco':'balanced',materials:true,shadows:true,shadowSoft:true,water:true,ssr:false,contact:false,animation:true,waveStrength:.35,time:0,frames:0,errors:[],fps:0,hdr:false,paused:false};
+const state={ready:false,scene:'shore',biome:'forest',quality:window.PleiadeAndroid?'eco':'balanced',materials:true,shadows:true,shadowSoft:true,water:true,ssr:false,contact:false,animation:true,waveStrength:.35,time:0,frames:0,errors:[],fps:0,hdr:false,paused:false};
 window.pleiade={state};
 const math={
  sub:(a,b)=>a.map((x,i)=>x-b[i]),add:(a,b)=>a.map((x,i)=>x+b[i]),scale:(a,s)=>a.map(x=>x*s),
@@ -18,7 +19,8 @@ let world=generateWorld(),starTexture,skyFrame,skyRunning=false,skyView=false,fl
 try{const saved=localStorage.getItem('pleiade-world-v1');if(saved)world=validateWorld(JSON.parse(saved));}catch{}
 let cloudTexture,cloudFbo,cloudWidth=0,cloudKey='',cloudBuilds=0,cloudReuse=true;
 let camera={target:[-1,0,-2],yaw:.8,pitch:.32,distance:15};
-const limits={eco:{size:640,shadow:512},balanced:{size:960,shadow:1024},detail:{size:1280,shadow:2048}};
+let activeBiome, drawAnchor, layoutRevision=0, drawnRevision=-1, drawnSignature=0, submittedTriangles=0;
+const limits={eco:{size:640,shadow:512,near:0},balanced:{size:960,shadow:1024,near:72000},detail:{size:1280,shadow:2048,near:180000}};
 let lightVP=math.mul(math.ortho(-32,32,-32,32,.1,180),math.look([-45,75,45],[0,0,0]));
 function toast(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,3500);}
 function fail(error){const message=String(error?.message||error);state.errors.push(message);state.ready=false;cancelAnimationFrame(frameRequest);$('status').hidden=false;$('status').querySelector('h2').textContent='No se ha podido iniciar';$('status').querySelector('.loader').hidden=true;$('load-status').textContent=message;$('retry').hidden=false;$('state').textContent='Sin render';}
@@ -37,37 +39,116 @@ function resize(){const limit=limits[state.quality].size,aspect=innerWidth/inner
  gl.drawBuffers([gl.COLOR_ATTACHMENT0,gl.COLOR_ATTACHMENT1,gl.COLOR_ATTACHMENT2]);checkFbo('de la escena');gl.bindFramebuffer(gl.FRAMEBUFFER,null);$('resolution').textContent=w+' × '+h;
 }
 function resizeShadow(){if(shadowTexture)gl.deleteTexture(shadowTexture);shadowSize=limits[state.quality].shadow;shadowTexture=texture(shadowSize,shadowSize,gl.DEPTH_COMPONENT24,gl.DEPTH_COMPONENT,gl.UNSIGNED_INT,null);gl.bindFramebuffer(gl.FRAMEBUFFER,shadowFbo);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.TEXTURE_2D,shadowTexture,0);gl.drawBuffers([gl.NONE]);gl.readBuffer(gl.NONE);checkFbo('de sombras');gl.bindFramebuffer(gl.FRAMEBUFFER,null);shadowDirty=true;}
-async function loadMesh(item){let [vb,ib]=await Promise.all([fetchData(`assets/mesh-${item.id}.vbo`,'buffer'),fetchData(`assets/mesh-${item.id}.ibo`,'buffer')]);let vao=gl.createVertexArray();gl.bindVertexArray(vao);let vertex=gl.createBuffer(),index=gl.createBuffer(),instances=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vertex);gl.bufferData(gl.ARRAY_BUFFER,vb,gl.STATIC_DRAW);for(let i=0;i<2;i++){gl.enableVertexAttribArray(i);gl.vertexAttribPointer(i,3,gl.FLOAT,false,24,i*12);}gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,index);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,ib,gl.STATIC_DRAW);gl.bindBuffer(gl.ARRAY_BUFFER,instances);for(let i=0;i<6;i++){gl.enableVertexAttribArray(2+i);gl.vertexAttribPointer(2+i,4,gl.FLOAT,false,96,i*16);gl.vertexAttribDivisor(2+i,1);}meshes.set(item.id,{vao,vertex,index,instances,count:item.indices,far:item.far});}
-function uploadSceneMeshes(){
- const objects=sceneData[state.scene==='building'?'building':'shore'];
- const byMesh=new Map();
- for(const {mesh,instance} of objects){
-  const id=state.quality==='eco'?(meshes.get(mesh).far??mesh):mesh;
+function makeMesh(item, vertices, indices, stride) {
+ const vao=gl.createVertexArray(),vertex=gl.createBuffer(),index=gl.createBuffer(),instances=gl.createBuffer();
+ const mesh={vao,vertex,index,instances,count:item.indices,far:item.far,farMaterial:item.farMaterial};
+ gl.bindVertexArray(vao);
+ gl.bindBuffer(gl.ARRAY_BUFFER,vertex);gl.bufferData(gl.ARRAY_BUFFER,vertices,gl.STATIC_DRAW);
+ for(let i=0;i<2;i++){gl.enableVertexAttribArray(i);gl.vertexAttribPointer(i,3,gl.FLOAT,false,stride,i*12);}
+ if(stride>=32){gl.enableVertexAttribArray(8);gl.vertexAttribPointer(8,2,gl.FLOAT,false,stride,24);}
+ gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,index);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,indices,gl.STATIC_DRAW);
+ gl.bindBuffer(gl.ARRAY_BUFFER,instances);
+ for(let i=0;i<6;i++){gl.enableVertexAttribArray(2+i);gl.vertexAttribPointer(2+i,4,gl.FLOAT,false,96,i*16);gl.vertexAttribDivisor(2+i,1);}
+ meshes.set(item.id,mesh);
+}
+async function loadMesh(item){
+ const [vertices,indices]=await Promise.all([fetchData(`assets/mesh-${item.id}.vbo`,'buffer'),fetchData(`assets/mesh-${item.id}.ibo`,'buffer')]);
+ makeMesh(item,vertices,indices,sceneData.vertexStride??24);
+}
+function regenerateBiome(){
+ activeBiome=createBiome(state.biome,world.seed,sceneData);
+ const {terrain}=activeBiome,previous=meshes.get('biome-ground');
+ if(previous){
+  gl.deleteVertexArray(previous.vao);
+  for(const buffer of [previous.vertex,previous.index,previous.instances])gl.deleteBuffer(buffer);
+ }
+ makeMesh({id:'biome-ground',indices:terrain.indices.length},terrain.vertices,terrain.indices,32);
+ layoutRevision++;drawAnchor=null;shadowDirty=true;
+}
+function uploadSceneMeshes(eye){
+ const focal=canvas.height/(2*Math.tan(opticalFov*Math.PI/360));
+ const anchor=[...eye,focal];
+ if(drawAnchor&&Math.hypot(eye[0]-drawAnchor[0],eye[1]-drawAnchor[1],eye[2]-drawAnchor[2])<.75&&focal===drawAnchor[3])return;
+ drawAnchor=anchor;
+ const objects=state.scene==='biomes'?activeBiome.objects:sceneData[state.scene==='building'?'building':'shore'];
+ const byMesh=new Map(),plan=[],near=[];
+ let remaining=limits[state.quality].near;
+ for(const [objectIndex,{mesh:id,instance,visible,detail,section}] of objects.entries()){
+  if(visible===false)continue;
+  const mesh=meshes.get(id);
+  const breadth=Math.max(Math.hypot(instance[0],instance[1],instance[2]),Math.hypot(instance[8],instance[9],instance[10]));
+  const height=Math.hypot(instance[4],instance[5],instance[6]);
+  const woody=section>=1&&section<=6;
+  const projected=focal/Math.max(.25,Math.hypot(instance[12]-eye[0],instance[13]-eye[1],instance[14]-eye[2]));
+  const pixels=(woody?breadth:Math.max(breadth,height))*projected;
+  if(detail&&pixels<(woody&&state.scene==='biomes'?1.4:woody?.6:3.5))continue;
+  const item={id:mesh.far??id,instance,material:mesh.farMaterial,objectIndex};
+  plan.push(item);
+  if(mesh.far!==undefined&&remaining>0&&pixels>(woody?(state.quality==='detail'?6:12):(state.quality==='detail'?48:85))){
+   near.push({item,id,pixels,cost:(mesh.count-meshes.get(mesh.far).count)/3});
+  }
+ }
+ near.sort((a,b)=>b.pixels-a.pixels);
+ for(const {item,id,cost} of near){
+  if(cost>remaining)continue;
+  remaining-=cost;item.id=id;item.material=undefined;
+ }
+ let signature=0;
+ for(const {id,objectIndex} of plan)signature=Math.imul(signature^(id==='biome-ground'?71:id)^Math.imul(objectIndex,113),16777619);
+ if(drawnRevision===layoutRevision&&drawnSignature===signature)return;
+ drawnRevision=layoutRevision;drawnSignature=signature;
+ for(const {id,instance,material} of plan){
   if(!byMesh.has(id))byMesh.set(id,[]);
-  byMesh.get(id).push(...instance);
+  const batch=byMesh.get(id);
+  if(material===undefined)batch.push(...instance);
+  else{const copy=instance.slice();copy[22]=material;batch.push(...copy);}
  }
  groups=[];
+ submittedTriangles=0;
  for(const [id,data] of byMesh){
   const mesh=meshes.get(id);
   gl.bindBuffer(gl.ARRAY_BUFFER,mesh.instances);
   gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(data),gl.STATIC_DRAW);
-  groups.push({mesh,instances:data.length/24});
+  const instances=data.length/24;
+  groups.push({mesh,instances});
+  submittedTriangles+=mesh.count/3*instances;
  }
  shadowDirty=true;
 }
-function useScene(name){state.scene=name;uploadSceneMeshes();
- state.water=name==='shore';$('water').checked=state.water;$('water').disabled=name!=='shore';$('ssr').disabled=name!=='shore';shadowDirty=true;
- const labels={shore:['La orilla','Agua, piedra y transición de humedad.'],materials:['Piedra y corteza','Los mismos mapas del PC, a 512².'],building:['La edificación','Materiales y contacto entre terreno y estructura.']};$('scene-title').textContent=labels[name][0];$('scene-description').textContent=labels[name][1];document.querySelectorAll('[data-scene]').forEach(b=>{let active=b.dataset.scene===name;b.classList.toggle('active',active);b.setAttribute('aria-pressed',active);});resetCamera();
+function useScene(name){
+ if(!['building','materials','shore','biomes'].includes(name))return;
+ state.scene=name;
+ if(name==='biomes')regenerateBiome();
+ state.water=name==='shore';$('water').checked=state.water;$('water').disabled=name!=='shore';$('ssr').disabled=name!=='shore';
+ const labels={shore:['La orilla','Agua, piedra y vegetación de ribera.'],materials:['Vegetación de cerca','Agujas, frondes, hojas y corteza.'],building:['La cabaña','Madera, piedra y sombras de contacto.']};
+ const [title,description]=name==='biomes'?[biomes[state.biome].title,biomes[state.biome].description]:labels[name];
+ $('scene-title').textContent=title;$('scene-description').textContent=description;
+ $('biome-control').hidden=name!=='biomes';
+ document.querySelectorAll('[data-scene]').forEach(button=>{let active=button.dataset.scene===name;button.classList.toggle('active',active);button.setAttribute('aria-pressed',active);});
+ layoutRevision++;drawAnchor=null;shadowDirty=true;resetCamera();
 }
-function resetCamera(){skyView=false;camera=state.scene==='building'?{target:[0,1,0],yaw:.8,pitch:.32,distance:18}:state.scene==='materials'?{target:[4,.6,-2],yaw:.7,pitch:.38,distance:9}:{target:[-1,0,-2],yaw:.8,pitch:.32,distance:15};}
-function cameraFrame(){let cp=Math.cos(camera.pitch),eye=math.add(camera.target,[Math.sin(camera.yaw)*cp*camera.distance,Math.sin(camera.pitch)*camera.distance,Math.cos(camera.yaw)*cp*camera.distance]);eye[1]=Math.max(.3,eye[1]);let target=camera.target;if(skyView){eye=[camera.target[0],flightAltitude,camera.target[2]];target=math.add(eye,[Math.sin(camera.yaw)*cp,Math.sin(camera.pitch),Math.cos(camera.yaw)*cp]);}let v=math.look(eye,target),p=math.perspective(opticalFov*Math.PI/180,canvas.width/canvas.height);return {eye,v,p,vp:math.mul(p,v),right:[v[0],v[4],v[8]],up:[v[1],v[5],v[9]],forward:[-v[2],-v[6],-v[10]]};}
-function setQuality(name){state.quality=name;$('quality').value=name;if(state.ready){uploadSceneMeshes();resizeShadow();resize();}}
+function useBiome(name){
+ if(!Object.hasOwn(biomes,name))return;
+ state.biome=name;$('biome').value=name;
+ if(state.ready)useScene('biomes');
+}
+function resetCamera(){
+ skyView=false;
+ if(state.scene==='biomes'){
+  const [x,rise,z,yaw,pitch,distance]=biomes[state.biome].view;
+  camera={target:[x,activeBiome.height(x,z)+rise,z],yaw,pitch,distance};
+ }else if(state.scene==='building')camera={target:[0,1.65,0],yaw:.72,pitch:.26,distance:14.5};
+ else if(state.scene==='materials')camera={target:[4.3,1.4,-3.2],yaw:.49,pitch:.26,distance:7.2};
+ else camera={target:[1.0,.6,-4.5],yaw:.64,pitch:.32,distance:16};
+}
+function cameraFrame(){let cp=Math.cos(camera.pitch),eye=math.add(camera.target,[Math.sin(camera.yaw)*cp*camera.distance,Math.sin(camera.pitch)*camera.distance,Math.cos(camera.yaw)*cp*camera.distance]);eye[1]=Math.max(state.scene==='biomes'?activeBiome.height(eye[0],eye[2])+.46:.3,eye[1]);let target=camera.target;if(skyView){eye=[camera.target[0],flightAltitude,camera.target[2]];target=math.add(eye,[Math.sin(camera.yaw)*cp,Math.sin(camera.pitch),Math.cos(camera.yaw)*cp]);}let v=math.look(eye,target),p=math.perspective(opticalFov*Math.PI/180,canvas.width/canvas.height);return {eye,v,p,vp:math.mul(p,v),right:[v[0],v[4],v[8]],up:[v[1],v[5],v[9]],forward:[-v[2],-v[6],-v[10]]};}
+function setQuality(name){state.quality=name;$('quality').value=name;if(state.ready){drawAnchor=null;resizeShadow();resize();}}
 function drawGroups(){for(const g of groups){gl.bindVertexArray(g.mesh.vao);gl.drawElementsInstanced(gl.TRIANGLES,g.mesh.count,gl.UNSIGNED_INT,0,g.instances);}}
 function saveWorld(){try{localStorage.setItem('pleiade-world-v1',JSON.stringify(world));}catch{toast('No se pudo guardar en este navegador. Exporta el mundo.');}}
 function importWorldText(text){try{applyWorld(JSON.parse(text));toast('Mundo y reloj restaurados.');}catch(e){toast(e.message);}}
 function uploadStars(){if(starTexture)gl.deleteTexture(starTexture);starTexture=texture(512,256,gl.RGBA32F,gl.RGBA,gl.FLOAT,starAtlas(world),true);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);}
 function syncSkyUI(){$('world-seed').value=world.seed;$('sky-hour').value=(world.elapsedDays%1)*24;$('sky-clock').textContent='Día '+Math.floor(world.elapsedDays)+' · '+((world.elapsedDays%1)*24).toFixed(1)+' h';}
-function applyWorld(w){world=validateWorld(w);uploadStars();shadowDirty=true;syncSkyUI();saveWorld();}
+function applyWorld(w){world=validateWorld(w);if(state.scene==='biomes')regenerateBiome();uploadStars();shadowDirty=true;syncSkyUI();saveWorld();}
 function skyUniforms(p){uf(p,'uSkyPixelAngle',2*Math.tan(opticalFov*Math.PI/360)/canvas.height);uf(p,'uWorldSeed',world.seed%65536);uf(p,'uCloudAmount',cloudAmount);uf(p,'uCloudTime',world.elapsedDays*world.daySeconds);uv(p,'uSkyObserver',cameraFrame().eye);uv(p,'uSunDirection',skyFrame.sun);uv(p,'uMoonDirection',skyFrame.moon);uv(p,'uLightColor',skyFrame.lightColor);uv(p,'uSkyLightDirection',skyFrame.light);uv(p,'lightDirection',skyFrame.light);uf(p,'uDaylight',skyFrame.daylight);uf(p,'uSkyAmbient',skyFrame.ambient);uf(p,'uStarAngle',skyFrame.phase);uf(p,'uLatitude',skyFrame.latitude);bind(starTexture,12);ui(p,'uStars',12);}
 function updateCloudCache(c){
  if(cloudAmount<=0||!cloudReuse)return;
@@ -78,7 +159,7 @@ function updateCloudCache(c){
  // The cloud pass never samples its own target.
  bind(visibilityTexture,13);gl.bindFramebuffer(gl.FRAMEBUFFER,cloudFbo);gl.viewport(0,0,width,width/2);gl.disable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);gl.disable(gl.BLEND);gl.useProgram(programs.cloud.id);skyUniforms(programs.cloud);gl.bindVertexArray(emptyVAO);gl.drawArrays(gl.TRIANGLES,0,3);cloudKey=key;cloudBuilds++;
 }
-function render(){if(!state.ready||gl.isContextLost())return;resize();skyFrame=celestialFrame(world);const cloudLight=cloudTransmission(world,skyFrame.light,cloudAmount);skyFrame.lightColor=skyFrame.lightColor.map(x=>x*cloudLight);skyFrame.ambient*=.5+.5*cloudLight;lightVP=math.mul(math.ortho(-32,32,-32,32,.1,180),math.look(math.scale(skyFrame.light,90),[0,0,0]));const c=cameraFrame();updateCloudCache(c);gl.enable(gl.DEPTH_TEST);gl.enable(gl.CULL_FACE);gl.disable(gl.BLEND);
+function render(){if(!state.ready||gl.isContextLost())return;resize();skyFrame=celestialFrame(world);const cloudLight=cloudTransmission(world,skyFrame.light,cloudAmount);skyFrame.lightColor=skyFrame.lightColor.map(x=>x*cloudLight);skyFrame.ambient*=.5+.5*cloudLight;const range=state.scene==='biomes'?64:32;lightVP=math.mul(math.ortho(-range,range,-range,range,.1,200),math.look(math.scale(skyFrame.light,100),[0,0,0]));const c=cameraFrame();uploadSceneMeshes(c.eye);updateCloudCache(c);gl.enable(gl.DEPTH_TEST);gl.enable(gl.CULL_FACE);gl.disable(gl.BLEND);
  if(state.shadows&&shadowDirty){gl.bindFramebuffer(gl.FRAMEBUFFER,shadowFbo);gl.viewport(0,0,shadowSize,shadowSize);gl.clear(gl.DEPTH_BUFFER_BIT);let p=programs.shadow;gl.useProgram(p.id);um(p,'uVP',lightVP);uf(p,'uTime',state.time);gl.enable(gl.POLYGON_OFFSET_FILL);gl.polygonOffset(2,4);drawGroups();gl.disable(gl.POLYGON_OFFSET_FILL);shadowDirty=false;}
  gl.bindFramebuffer(gl.FRAMEBUFFER,sceneFbo);gl.viewport(0,0,canvas.width,canvas.height);gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);let p=programs.material;gl.useProgram(p.id);skyUniforms(p);um(p,'uVP',c.vp);um(p,'uView',c.v);um(p,'uLightVP',lightVP);uv(p,'uEye',c.eye);uf(p,'uTime',state.time);uf(p,'uWetTime',state.time);uf(p,'uWaveStrength',state.waveStrength);uf(p,'uFogDensity',.0025);ui(p,'uShadows',state.shadows);ui(p,'uShadowSoft',state.shadowSoft);ui(p,'uNatural',1);ui(p,'uMaterials',state.materials);ui(p,'uWet',state.water);ui(p,'uVisibilityEnabled',0);bind(shadowTexture,0);bind(visibilityTexture,11);ui(p,'uShadow',0);materialTextures.forEach((t,i)=>bind(t,5+i));drawGroups();
  gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.disable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);p=programs.composite;gl.useProgram(p.id);skyUniforms(p);bind(cloudTexture||visibilityTexture,13);ui(p,'uCloudMap',13);ui(p,'uCloudCached',cloudReuse&&cloudAmount>0);for(let i=0;i<4;i++)bind(targets[[0,1,3,2][i]],i);ui(p,'uContact',state.hdr&&state.contact);ui(p,'uWater',state.water);ui(p,'uWaterSSR',state.ssr&&state.water);uf(p,'uWaterTime',state.time);uf(p,'uWaveStrength',state.waveStrength);uf(p,'uExposure',1);uf(p,'uTurbidity',turbidity);ui(p,'uAA',1);uv(p,'uCameraEye',c.eye);uv(p,'uCameraRight',c.right);uv(p,'uCameraUp',c.up);uv(p,'uCameraForward',c.forward);gl.uniform2f(loc(p,'uProjectionScale'),c.p[0],c.p[5]);gl.bindVertexArray(emptyVAO);gl.drawArrays(gl.TRIANGLES,0,3);state.frames++;
@@ -99,8 +180,9 @@ function download(blob,name){
  setTimeout(()=>URL.revokeObjectURL(url),30000);
  toast('Descarga solicitada: '+name);
 }
-function report(){return {viewer:VERSION,desktopBase:'0.003.0.17',browser:navigator.userAgent,screen:{width:innerWidth,height:innerHeight,dpr:devicePixelRatio},render:{width:canvas.width,height:canvas.height,shadow:shadowSize,shadowDepthMiB:shadowSize*shadowSize*4/1048576,shadowFilter:state.shadowSoft?'continuous-tent-9':'box-9',hdr:state.hdr},settings:{...state},celestial:{seed:world.seed,elapsedDays:world.elapsedDays,daySeconds:world.daySeconds,running:skyRunning,cloudAmount,flightAltitude,opticalFov,turbidity},camera,capabilities:{webgl:gl?gl.getParameter(gl.VERSION):null,maxTextureSize:gl?gl.getParameter(gl.MAX_TEXTURE_SIZE):null},cloudCache:{enabled:cloudReuse,width:cloudWidth,height:cloudWidth/2,updates:cloudBuilds,estimatedMiB:cloudWidth*cloudWidth/2*(state.hdr?8:4)/1048576},memoryPolicy:{budgetMiB:4096,kind:'design ceiling, not measured browser allocation'},note:'FPS de presentación del navegador; no es tiempo GPU ni un benchmark de la RTX.'};}
+function report(){return {viewer:VERSION,desktopBase:'0.003.0.17',browser:navigator.userAgent,screen:{width:innerWidth,height:innerHeight,dpr:devicePixelRatio},render:{width:canvas.width,height:canvas.height,shadow:shadowSize,shadowDepthMiB:shadowSize*shadowSize*4/1048576,trianglesPerPass:submittedTriangles,shadowFilter:state.shadowSoft?'continuous-tent-9':'box-9',hdr:state.hdr},settings:{...state},biome:state.scene==='biomes'?{seed:world.seed,plants:activeBiome.plants,rocks:activeBiome.rocks}:null,celestial:{seed:world.seed,elapsedDays:world.elapsedDays,daySeconds:world.daySeconds,running:skyRunning,cloudAmount,flightAltitude,opticalFov,turbidity},camera,capabilities:{webgl:gl?gl.getParameter(gl.VERSION):null,maxTextureSize:gl?gl.getParameter(gl.MAX_TEXTURE_SIZE):null},cloudCache:{enabled:cloudReuse,width:cloudWidth,height:cloudWidth/2,updates:cloudBuilds,estimatedMiB:cloudWidth*cloudWidth/2*(state.hdr?8:4)/1048576},memoryPolicy:{budgetMiB:4096,kind:'design ceiling, not measured browser allocation'},note:'FPS de presentación del navegador; no es tiempo GPU ni un benchmark de la RTX.'};}
 function setupUI(){
+ $('biome').onchange=()=>useBiome($('biome').value);
  syncSkyUI();
  $('turbidity').oninput=()=>{turbidity=Number($('turbidity').value);};
  $('cloud-reuse').onchange=()=>{cloudReuse=$('cloud-reuse').checked;};
@@ -127,7 +209,7 @@ function setupUI(){
  const pointers=new Map();let gesture=null;
  const snapshot=()=>{let p=[...pointers.values()];return p.length>1?{x:(p[0].x+p[1].x)/2,y:(p[0].y+p[1].y)/2,d:Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y),n:p.length}:p.length?{...p[0],n:1}:null;};
  canvas.onpointerdown=e=>{if(!state.ready)return;canvas.setPointerCapture(e.pointerId);pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});gesture=snapshot();};
- canvas.onpointermove=e=>{if(!pointers.has(e.pointerId))return;pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});const next=snapshot();if(gesture&&next.n===gesture.n){let dx=next.x-gesture.x,dy=next.y-gesture.y;if(next.n===1){camera.yaw-=dx*.006;camera.pitch=Math.max(skyView?-1.4:.07,Math.min(1.4,camera.pitch+dy*.006));}else{camera.distance=Math.max(3,Math.min(48,camera.distance*(gesture.d/Math.max(5,next.d))));const c=cameraFrame(),speed=camera.distance*.0015;camera.target=math.add(camera.target,math.add(math.scale(c.right,-dx*speed),math.scale([c.forward[0],0,c.forward[2]],dy*speed)));camera.target[0]=Math.max(-15,Math.min(15,camera.target[0]));camera.target[2]=Math.max(-15,Math.min(15,camera.target[2]));}}gesture=next;};
+ canvas.onpointermove=e=>{if(!pointers.has(e.pointerId))return;pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});const next=snapshot();if(gesture&&next.n===gesture.n){let dx=next.x-gesture.x,dy=next.y-gesture.y;if(next.n===1){camera.yaw-=dx*.006;camera.pitch=Math.max(skyView?-1.4:.07,Math.min(1.4,camera.pitch+dy*.006));}else{camera.distance=Math.max(3,Math.min(48,camera.distance*(gesture.d/Math.max(5,next.d))));const c=cameraFrame(),speed=camera.distance*.0015;camera.target=math.add(camera.target,math.add(math.scale(c.right,-dx*speed),math.scale([c.forward[0],0,c.forward[2]],dy*speed)));const edge=state.scene==='biomes'?43:15;camera.target[0]=Math.max(-edge,Math.min(edge,camera.target[0]));camera.target[2]=Math.max(-edge,Math.min(edge,camera.target[2]));if(state.scene==='biomes')camera.target[1]=activeBiome.height(camera.target[0],camera.target[2])+1;}}gesture=next;};
  const release=e=>{pointers.delete(e.pointerId);gesture=snapshot();};canvas.onpointerup=release;canvas.onpointercancel=release;canvas.onlostpointercapture=release;window.addEventListener('blur',()=>{pointers.clear();gesture=null;});canvas.addEventListener('wheel',e=>{e.preventDefault();camera.distance=Math.max(3,Math.min(48,camera.distance*Math.exp(e.deltaY*.001)));},{passive:false});
  canvas.addEventListener('keydown',e=>{if(e.key.startsWith('Arrow'))e.preventDefault();if(e.key==='ArrowLeft')camera.yaw+=.1;if(e.key==='ArrowRight')camera.yaw-=.1;if(e.key==='ArrowUp')camera.pitch=Math.min(1.4,camera.pitch+.1);if(e.key==='ArrowDown')camera.pitch=Math.max(skyView?-1.4:.07,camera.pitch-.1);});
  document.addEventListener('visibilitychange',()=>{lastTime=performance.now();statTime=performance.now();statFrames=0;$('state').textContent=document.hidden?'En pausa':'Local';});
@@ -138,13 +220,27 @@ async function start(){setupUI();$('quality').value=state.quality;gl=canvas.getC
  $('format-note').textContent=state.hdr?'Iluminación HDR disponible.':'Modo compatible sin HDR: los brillos están limitados y el contacto ambiental se desactiva.';if(!state.hdr){$('contact').disabled=true;}
  $('load-status').textContent='Cargando materiales y geometría de Pléiade…';
  const data=await Promise.all([fetchData('assets/shaders.json'),fetchData('assets/scene.json'),fetchData('assets/manifest.json')]);let shaders=data[0];sceneData=data[1];manifest=data[2];programs.material=program(shaders.geometry,shaders.material);programs.shadow=program(shaders.geometry,shaders.shadow);programs.composite=program(shaders.fullscreen,shaders.composite);programs.cloud=program(shaders.fullscreen,shaders.cloud);
- const needed=new Set([...sceneData.shore,...sceneData.building].map(o=>o.mesh));
+ const populations=[sceneData.shore,sceneData.building,sceneData.snowCabin,...Object.values(sceneData.plants)];
+ const needed=new Set(populations.flat().filter(o=>o.visible!==false).map(o=>o.mesh));needed.add(sceneData.meshIds.rock);
  for(const mesh of sceneData.meshes){if(needed.has(mesh.id)&&mesh.far!==undefined)needed.add(mesh.far);}
  await Promise.all(sceneData.meshes.filter(m=>needed.has(m.id)).map(loadMesh));
+ const layerInfo=await fetchData('assets/surfaces.json');
+ const layerData=await Promise.all(['color','normal'].map(kind=>fetchData(`assets/surfaces-${kind}.rgba`,'buffer')));
+ layerData.forEach((bytes,index)=>{
+  const width=layerInfo.size,layers=layerInfo.layers.length,target=gl.TEXTURE_2D_ARRAY;
+  if(bytes.byteLength!==width*width*layers*4)throw Error('El paquete de superficies está incompleto.');
+  const t=gl.createTexture();gl.activeTexture(gl.TEXTURE0+14+index);gl.bindTexture(target,t);
+  gl.texImage3D(target,0,index?gl.RGBA8:gl.SRGB8_ALPHA8,width,width,layers,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(bytes));
+  gl.texParameteri(target,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(target,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.generateMipmap(target);
+ });
+ for(const p of [programs.material,programs.shadow]){
+  gl.useProgram(p.id);ui(p,'uSurfaceColor',14);ui(p,'uSurfaceNormal',15);ui(p,'uSurfaceMaps',1);
+ }
  for(const name of ['ground','bark','rock']){let bytes=new Uint8Array(await fetchData('assets/'+name+'.rgba','buffer'));for(let i=0;i<2;i++){let t=texture(512,512,i===0?gl.SRGB8_ALPHA8:gl.RGBA8,gl.RGBA,gl.UNSIGNED_BYTE,bytes.subarray(i*512*512*4,(i+1)*512*512*4),true);gl.generateMipmap(gl.TEXTURE_2D);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);materialTextures.push(t);}}
  gl.useProgram(programs.material.id);['uGroundColor','uGroundNormal','uBarkColor','uBarkNormal','uRockColor','uRockNormal'].forEach((name,i)=>ui(programs.material,name,5+i));ui(programs.material,'uVisibility',11);visibilityTexture=texture(1,1,gl.RGBA8,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([255,255,255,255]));bind(visibilityTexture,11);
  gl.useProgram(programs.composite.id);['uDirect','uAmbient','uDepth','uNormal'].forEach((n,i)=>ui(programs.composite,n,i));emptyVAO=gl.createVertexArray();sceneFbo=gl.createFramebuffer();shadowFbo=gl.createFramebuffer();resizeShadow();resize();uploadStars();useScene('shore');state.ready=true;render();$('status').hidden=true;$('state').textContent='Local';statTime=performance.now();frameRequest=requestAnimationFrame(tick);
- window.pleiade={state,report,render,gl,useScene,applyWorld,importWorldText,get world(){return world;},setAtmosphere({clouds=0,altitude=2,fov=62,reuse=true}={}){cloudReuse=reuse;cloudAmount=Math.max(0,Math.min(1,clouds));flightAltitude=Math.max(2,Math.min(6000,altitude));opticalFov=Math.max(8,Math.min(75,fov));skyView=true;},get camera(){return camera;},setQuality,setTime(t){state.animation=false;state.time=t;render();},readPixels(){render();const p=new Uint8Array(canvas.width*canvas.height*4);gl.readPixels(0,0,canvas.width,canvas.height,gl.RGBA,gl.UNSIGNED_BYTE,p);return p;}};
+ window.pleiade={state,report,render,gl,useScene,useBiome,applyWorld,importWorldText,get world(){return world;},setAtmosphere({clouds=0,altitude=2,fov=62,reuse=true}={}){cloudReuse=reuse;cloudAmount=Math.max(0,Math.min(1,clouds));flightAltitude=Math.max(2,Math.min(6000,altitude));opticalFov=Math.max(8,Math.min(75,fov));skyView=true;},get camera(){return camera;},setQuality,setTime(t){state.animation=false;state.time=t;render();},readPixels(){render();const p=new Uint8Array(canvas.width*canvas.height*4);gl.readPixels(0,0,canvas.width,canvas.height,gl.RGBA,gl.UNSIGNED_BYTE,p);return p;}};
  if(params.has('test'))import('./test.js').then(m=>m.run(window.pleiade)).catch(fail);
 }
 start().catch(fail);

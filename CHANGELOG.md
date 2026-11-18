@@ -1,3 +1,13 @@
+# Versión de prueba 0.000.00.010 — materiales, vegetación y biomas
+
+- Las coníferas tienen agujas curvas y el pino distribuye las agujas en pares. El abedul lleva hojas anchas con nervaduras. El helecho tiene frondes arqueadas con pinnas individuales y la campanilla tiene pétalos curvos. Una superficie continua recorre cada tronco y el pino mezcla gradualmente la corteza basal con la rojiza. Las secciones y sus relaciones siguen disponibles en la escena de origen para localizar futuras roturas.
+- `assets/blender/pleiade-surfaces.blend` contiene 16 materiales editables. El visor carga dos atlas de capas para color y opacidad, y normales tangentes y rugosidad. La cabaña usa madera, mampostería, biseles y apoyos parcialmente enterrados. Las rocas varían en tamaño, forma y posición.
+- Cinco escenas de terreno acotado se regeneran con la semilla del mundo. Las crestas, las dunas y el suelo se forman por altura y pendiente. La vegetación se distribuye según el hábitat local. Ahorro usa follaje, troncos y cañas de menor densidad geométrica. Equilibrado y Detalle reservan un presupuesto para sustituir esas mallas cuando ocupan más pantalla.
+- El historial de PC `0.003.0.17` documenta una corrección parcial del autosombreado y una franja dentada pendiente en el contacto con el suelo. La comparación del visor `.009` y `.010` usa una cámara fija por versión, sombras activadas y desactivadas, y Chromium WebGL 2 con SwiftShader a 680 × 920 y mapa de 1024². En esas capturas no aparece una franja triangular repetida como la del informe original de PC. Las escenas tienen geometría distinta. Queda pendiente repetir la escena original de Windows y comprobar el controlador de Android. [Comparación](tests/results/contact-010/comparacion.jpg)
+- Pasaron las pruebas C++ de jerarquía de plantas, los programas GLSL ES, las pruebas del visor y el puente Android simulado. Los cinco biomas renderizaron con WebGL 2 sin errores. La APK firmada se verificó junto con los recursos incluidos. Instalación y rendimiento en POCO F7 y Galaxy Tab A9+ pendientes.
+
+---
+
 # Versión de prueba 0.000.00.009 — vegetación procedural y APK Android
 
 La orilla y el modo detallado del mundo usan pícea europea, pino silvestre, enebro rastrero, helecho macho y campanilla. Cada planta se regenera con su semilla. La pícea tiene copa cónica con ramas bajas que caen y puntas superiores ascendentes. El pino forma una copa más alta e irregular, con agujas en pares y corteza rojiza en la parte alta. El enebro conserva las agujas en grupos de tres, el helecho forma una roseta de frondes divididas y la campanilla tiene hojas basales redondeadas y flores colgantes de cinco lóbulos.

@@ -8,9 +8,6 @@
 
 namespace pl {
 struct VisibilityMap;
-struct Vertex {
-    V3 p, n;
-};
 struct Mesh {
     GLuint vao = 0, vbo = 0, ebo = 0, instances = 0;
     GLsizei indices = 0;
@@ -77,6 +74,7 @@ class Renderer {
     bool visibilityCulling = true;
     GLuint visibilityTexture = 0;
     std::array<GLuint, 6> materialTextures{};
+    std::array<GLuint, 2> surfaceTextures{};
     GLint materialsLoc = 0, wetLoc = 0, wetTimeLoc = 0, waveLoc = 0;
     std::array<GLint, 8> waterLoc{};
     GLuint canopyTexture = 0, impostorProgram = 0;

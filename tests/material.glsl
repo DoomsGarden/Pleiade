@@ -2,7 +2,10 @@
 precision highp float;
 precision highp int;
 precision highp sampler2D;
+precision highp sampler2DArray;
 in vec3 rasterLocal;in vec3 rasterPosition;in vec3 worldNormal;in vec3 color;flat in vec3 surface;
+in vec2 rasterUV;
+flat in vec3 objectDimensions;
 flat in vec2 coverage;
 flat in float atlasView;
 vec3 worldPosition,localPosition;
@@ -21,6 +24,8 @@ uniform int uShadows;
 uniform int uNatural;
 uniform int uMaterials,uWet;uniform float uWetTime;uniform float uWaveStrength;
 uniform sampler2D uGroundColor,uGroundNormal,uBarkColor,uBarkNormal,uRockColor,uRockNormal;
+uniform sampler2DArray uSurfaceColor,uSurfaceNormal;
+uniform int uSurfaceMaps;
 mat3 surfaceFrame(vec3 n,vec2 uv){
  vec3 dx=dFdx(worldPosition),dy=dFdy(worldPosition),p1=cross(dy,n),p2=cross(n,dx);
  vec2 tx=dFdx(uv),ty=dFdy(uv);
@@ -47,6 +52,26 @@ PBRSurface triplanarPBR(sampler2D c,sampler2D r,vec3 n,vec3 view,float meters){
  vec3 weights=pow(abs(n),vec3(4.0));weights/=max(weights.x+weights.y+weights.z,.001);
  PBRSurface x=readPBR(c,r,worldPosition.zy/meters,n,view,0.0),y=readPBR(c,r,worldPosition.xz/meters,n,view,0.0),z=readPBR(c,r,worldPosition.xy/meters,n,view,0.0);
  PBRSurface result;result.base=x.base*weights.x+y.base*weights.y+z.base*weights.z;result.normal=normalize(x.normal*weights.x+y.normal*weights.y+z.normal*weights.z);result.rough=x.rough*weights.x+y.rough*weights.y+z.rough*weights.z;return result;
+}
+PBRSurface bakedSurface(vec2 uv,float layer,vec3 n){
+ vec3 key=vec3(uv,layer);
+ vec3 base=texture(uSurfaceColor,key).rgb;
+ if(uMaterials==0)return PBRSurface(base,n,.82);
+ vec4 map=texture(uSurfaceNormal,key);
+ vec3 detail=map.rgb*2.0-1.0;
+ return PBRSurface(base,normalize(surfaceFrame(n,uv)*detail),map.a);
+}
+PBRSurface blendSurface(PBRSurface a,PBRSurface b,float blend){
+ return PBRSurface(mix(a.base,b.base,blend),normalize(mix(a.normal,b.normal,blend)),mix(a.rough,b.rough,blend));
+}
+PBRSurface bakedWorldSurface(vec3 n,float layer,float meters){
+ vec3 weights=pow(abs(n),vec3(4.0));weights/=max(weights.x+weights.y+weights.z,.001);
+ PBRSurface x=bakedSurface(worldPosition.zy/meters,layer,n);
+ PBRSurface y=bakedSurface(worldPosition.xz/meters,layer,n);
+ PBRSurface z=bakedSurface(worldPosition.xy/meters,layer,n);
+ return PBRSurface(x.base*weights.x+y.base*weights.y+z.base*weights.z,
+   normalize(x.normal*weights.x+y.normal*weights.y+z.normal*weights.z),
+   x.rough*weights.x+y.rough*weights.y+z.rough*weights.z);
 }
 uniform float uFogDensity;
 uniform sampler2D uVisibility;uniform int uVisibilityEnabled;
@@ -97,6 +122,18 @@ float visibility(vec3 n){
 }
 
 vec3 sky(vec3 d){return mix(vec3(.12,.15,.18),vec3(.28,.42,.61),clamp(d.y*.5+.5,0.0,1.0));}
+PBRSurface biomeSurface(vec3 n,float layer){
+ float patches=filteredNoise(worldPosition.xz*.16);
+ vec2 ground=worldPosition.xz/(layer<10.5?2.9:2.1);
+ PBRSurface surfaceMap=bakedSurface(ground,layer,n);
+ if(layer<9.5)return surfaceMap;
+ if(layer<10.5){
+  float snow=smoothstep(-1.0,10.5,worldPosition.y+(patches-.43)*7.0)*smoothstep(.42,.86,n.y);
+  return blendSurface(bakedSurface(ground,11.0,n),surfaceMap,snow);
+ }
+ return blendSurface(surfaceMap,bakedSurface(ground*.68,11.0,n),
+   smoothstep(.52,.72,patches)*.48+(1.0-smoothstep(.54,.81,n.y))*.46);
+}
 uniform vec3 uLightColor;
 uniform float uSkyAmbient;
 uniform float uDaylight;
@@ -105,7 +142,7 @@ vec3 atmosphereFog(vec3 d){float h=max(d.y,0.0);return mix(mix(vec3(.006,.009,.0
 void main(){
  worldPosition=rasterPosition;localPosition=rasterLocal;
  vec3 normal=worldNormal;vec3 surf=surface;
- if((surface.z>6.5&&surface.z<7.5)||surface.z>9.5){
+ if((surface.z>6.5&&surface.z<7.5)||abs(surface.z-10.0)<.1){
    float threshold=hash(vec3(floor(gl_FragCoord.xy),0.0));
    if(threshold<coverage.x||threshold>=coverage.y)discard;
    surf.y=0.0;
@@ -125,8 +162,39 @@ void main(){
 #endif
  vec3 n=normalize(normal),v=normalize(uEye-worldPosition),l=lightDirection,h=normalize(v+l);
  vec3 base=color;float rough=clamp(surf.x,.06,1.0),metal=surf.y;
+ float layer=surf.z-20.0;
+ bool foliage=(layer>=-.5&&layer<3.5)||(layer>=13.5&&layer<15.5);
  bool scanned=uMaterials!=0&&((surf.z>3.5&&surf.z<4.5)||(surf.z>4.5&&surf.z<5.5&&atlasView<-.5)||(surf.z>8.5&&surf.z<9.5));
- if(scanned){
+ if(surf.z>=19.5){
+  if(foliage&&dot(n,v)<0.0)n=-n;
+  if(uSurfaceMaps!=0){
+   PBRSurface material;
+   if(surf.z>=39.5){
+    material=biomeSurface(n,surf.z-40.0);
+   } else if(layer>=6.5&&layer<12.5){
+    material=bakedWorldSurface(n,layer,layer<7.5?1.8:2.1);
+   } else {
+    vec2 texUV=rasterUV;
+    if(layer>=4.5&&layer<6.5)texUV.y*=max(.5,objectDimensions.y*1.15);
+    if(abs(layer-13.0)<.5)texUV.y*=12.0;
+    material=bakedSurface(texUV,layer,n);
+    if(abs(layer-5.0)<.5&&abs(atlasView+3.0)<.1){
+     float tint=smoothstep(.24,.76,rasterLocal.y+.5+(filteredNoise(worldPosition.xz*1.7)-.5)*.33);
+     material=blendSurface(material,bakedSurface(texUV,6.0,n),tint);
+    }
+    if(abs(layer-5.0)<.5&&abs(atlasView+4.0)<.1){
+     float lenticel=pow(.5+.5*cos(texUV.y*75.0+filteredNoise(texUV*7.0)*6.0),12.0);
+     material.base=mix(material.base,vec3(.56,.59,.55),.68-lenticel*.36);
+    }
+    if((layer>=1.5&&layer<3.5)||(layer>=13.5&&layer<15.5)){
+     if(texture(uSurfaceColor,vec3(texUV,layer)).a<(layer>=13.5?.28:.42))discard;
+    }
+   }
+   base=material.base*color;n=material.normal;rough=material.rough;
+  }else if(foliage){base*=vec3(.092,.23,.074);}
+  else if(layer<6.5){base*=vec3(.15,.078,.047);}
+  metal=0.0;
+ }else if(scanned){
   PBRSurface material;
   if(surf.z<4.5){float fade=1.0-smoothstep(6.0,14.0,length(uEye-worldPosition));material=readPBR(uGroundColor,uGroundNormal,worldPosition.xz/3.2,n,v,.035/3.2*fade);}
   else if(surf.z<5.5)material=triplanarPBR(uBarkColor,uBarkNormal,n,v,1.0);
@@ -221,7 +289,7 @@ void main(){
  float G=(nv/(nv*(1.0-k)+k))*(nl/(nl*(1.0-k)+k));
  vec3 spec=D*G*F/max(4.0*nv*nl,.001);
  vec3 direct=((1.0-F)*(1.0-metal)*base/PI+spec)*uLightColor*nl*visibility(n);
- if(surf.z>6.5&&surf.z<8.5)
+ if(foliage||(surf.z>6.5&&surf.z<8.5))
    direct+=base*uLightColor*vec3(.08,.10,.06)*pow(max(dot(-n,l),0.0),2.0)*visibility(n);
  // Analytic environment approximation: no captured reflections or global illumination yet.
  vec3 env=sky(reflect(-v,n));vec3 ambient=(1.0-metal)*base*mix(vec3(.07,.085,.09),vec3(.20,.24,.29),n.y*.5+.5)+env*f0*(1.0-.6*rough);

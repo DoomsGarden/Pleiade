@@ -2,6 +2,7 @@
 precision highp float;
 precision highp int;
 precision highp sampler2D;
+precision highp sampler2DArray;
 in vec2 uv;out vec4 frag;
 uniform sampler2D uDirect;uniform sampler2D uAmbient;uniform sampler2D uDepth;
 uniform float uExposure;

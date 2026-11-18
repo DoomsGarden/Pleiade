@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import shutil
 import struct
 from pathlib import Path
 
@@ -22,6 +23,8 @@ def prepare_materials(output: Path) -> None:
     output.mkdir(parents=True, exist_ok=True)
     for name, pixels in payloads.items():
         (output / f"{name}.pltex").write_bytes(header + pixels)
+    for name in ("surfaces-color.rgba", "surfaces-normal.rgba"):
+        shutil.copyfile(assets / name, output / name)
 
 
 if __name__ == "__main__":
