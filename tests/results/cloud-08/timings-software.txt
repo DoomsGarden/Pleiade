@@ -1,0 +1,9 @@
+altitude 2 atlas ms 11.9729
+cache 0 avg ms 40.2581
+cache 1 avg ms 1.42761
+altitude 1300 atlas ms 15.6001
+cache 0 avg ms 55.8061
+cache 1 avg ms 1.34777
+altitude 4200 atlas ms 12.8344
+cache 0 avg ms 0.46518
+cache 1 avg ms 0.996026

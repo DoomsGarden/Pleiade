@@ -1,0 +1,33 @@
+{
+  "renderer": "Mesa llvmpipe (software)",
+  "cases": [
+    {
+      "resolution": 512,
+      "camera": "fps",
+      "empty_plane_max_error": 0,
+      "shadow_pixels": 166,
+      "contact_darkening": null
+    },
+    {
+      "resolution": 512,
+      "camera": "strategy",
+      "empty_plane_max_error": 0,
+      "shadow_pixels": 2588,
+      "contact_darkening": 86
+    },
+    {
+      "resolution": 2048,
+      "camera": "fps",
+      "empty_plane_max_error": 0,
+      "shadow_pixels": 39,
+      "contact_darkening": null
+    },
+    {
+      "resolution": 2048,
+      "camera": "strategy",
+      "empty_plane_max_error": 0,
+      "shadow_pixels": 2489,
+      "contact_darkening": 86
+    }
+  ]
+}

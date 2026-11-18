@@ -1,0 +1,7 @@
+{
+  "calm_identical_over_time": true,
+  "wave_changed_pixels": 41084,
+  "ssr_changed_pixels": 3860,
+  "before_after_changed_pixels": 55223,
+  "renderer": "Mesa llvmpipe software; not Android WebGL"
+}

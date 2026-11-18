@@ -1,0 +1,1 @@
+{"name":"pleiade-tablet","private":true,"type":"module","scripts":{"test":"node tests/runtime_check.mjs && python3 tests/assets_check.py"}}

@@ -1,0 +1,5 @@
+{
+  "night_darker_than_day": true,
+  "cloud_layer_views_distinct": true,
+  "renderer": "Mesa llvmpipe shader-only, not Android WebGL"
+}

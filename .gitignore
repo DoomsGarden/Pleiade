@@ -1,0 +1,14 @@
+tests/results/sky-04/stars.rgba
+tests/results/sky-04/*.ppm
+tests/results/sky-05/stars.rgba
+tests/results/sky-05/*.ppm
+/build/
+/results/
+/.venv/
+/node_modules/
+__pycache__/
+*.apk
+*.idsig
+*.jks
+*.keystore
+*.p12
