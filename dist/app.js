@@ -1,7 +1,7 @@
 import {generateWorld,validateWorld,celestialFrame,starAtlas,cloudTransmission} from './celestial.js';
 import {biomes,createBiome} from './biomes.js';
 const $=id=>document.getElementById(id), canvas=$('view');
-const VERSION='0.000.00.010';
+const VERSION='0.000.00.011';
 const params=new URLSearchParams(location.search);
 const state={ready:false,scene:'shore',biome:'forest',quality:window.PleiadeAndroid?'eco':'balanced',materials:true,shadows:true,shadowSoft:true,water:true,ssr:false,contact:false,animation:true,waveStrength:.35,time:0,frames:0,errors:[],fps:0,hdr:false,paused:false};
 window.pleiade={state};
@@ -19,8 +19,8 @@ let world=generateWorld(),starTexture,skyFrame,skyRunning=false,skyView=false,fl
 try{const saved=localStorage.getItem('pleiade-world-v1');if(saved)world=validateWorld(JSON.parse(saved));}catch{}
 let cloudTexture,cloudFbo,cloudWidth=0,cloudKey='',cloudBuilds=0,cloudReuse=true;
 let camera={target:[-1,0,-2],yaw:.8,pitch:.32,distance:15};
-let activeBiome, drawAnchor, layoutRevision=0, drawnRevision=-1, drawnSignature=0, submittedTriangles=0;
-const limits={eco:{size:640,shadow:512,near:0},balanced:{size:960,shadow:1024,near:72000},detail:{size:1280,shadow:2048,near:180000}};
+let activeBiome, drawAnchor, layoutRevision=0, drawnRevision=-1, drawnSignature=0, submittedTriangles=0, needleBundles=0;
+const limits={eco:{size:640,shadow:512,needles:14000,near:0},balanced:{size:960,shadow:1024,needles:18000,near:54000},detail:{size:1280,shadow:2048,needles:30000,near:150000}};
 let lightVP=math.mul(math.ortho(-32,32,-32,32,.1,180),math.look([-45,75,45],[0,0,0]));
 function toast(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,3500);}
 function fail(error){const message=String(error?.message||error);state.errors.push(message);state.ready=false;cancelAnimationFrame(frameRequest);$('status').hidden=false;$('status').querySelector('h2').textContent='No se ha podido iniciar';$('status').querySelector('.loader').hidden=true;$('load-status').textContent=message;$('retry').hidden=false;$('state').textContent='Sin render';}
@@ -41,7 +41,7 @@ function resize(){const limit=limits[state.quality].size,aspect=innerWidth/inner
 function resizeShadow(){if(shadowTexture)gl.deleteTexture(shadowTexture);shadowSize=limits[state.quality].shadow;shadowTexture=texture(shadowSize,shadowSize,gl.DEPTH_COMPONENT24,gl.DEPTH_COMPONENT,gl.UNSIGNED_INT,null);gl.bindFramebuffer(gl.FRAMEBUFFER,shadowFbo);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.TEXTURE_2D,shadowTexture,0);gl.drawBuffers([gl.NONE]);gl.readBuffer(gl.NONE);checkFbo('de sombras');gl.bindFramebuffer(gl.FRAMEBUFFER,null);shadowDirty=true;}
 function makeMesh(item, vertices, indices, stride) {
  const vao=gl.createVertexArray(),vertex=gl.createBuffer(),index=gl.createBuffer(),instances=gl.createBuffer();
- const mesh={vao,vertex,index,instances,count:item.indices,far:item.far,farMaterial:item.farMaterial};
+ const mesh={vao,vertex,index,instances,count:item.indices,far:item.far,farMaterial:item.farMaterial,mid:item.mid};
  gl.bindVertexArray(vao);
  gl.bindBuffer(gl.ARRAY_BUFFER,vertex);gl.bufferData(gl.ARRAY_BUFFER,vertices,gl.STATIC_DRAW);
  for(let i=0;i<2;i++){gl.enableVertexAttribArray(i);gl.vertexAttribPointer(i,3,gl.FLOAT,false,stride,i*12);}
@@ -65,33 +65,41 @@ function regenerateBiome(){
  makeMesh({id:'biome-ground',indices:terrain.indices.length},terrain.vertices,terrain.indices,32);
  layoutRevision++;drawAnchor=null;shadowDirty=true;
 }
-function uploadSceneMeshes(eye){
+function uploadSceneMeshes({eye,forward}){
  const focal=canvas.height/(2*Math.tan(opticalFov*Math.PI/360));
- const anchor=[...eye,focal];
- if(drawAnchor&&Math.hypot(eye[0]-drawAnchor[0],eye[1]-drawAnchor[1],eye[2]-drawAnchor[2])<.75&&focal===drawAnchor[3])return;
- drawAnchor=anchor;
+ if(drawAnchor&&math.dot(forward,drawAnchor.forward)>.994&&Math.hypot(...math.sub(eye,drawAnchor.eye))<.55&&focal===drawAnchor.focal)return;
+ drawAnchor={eye,forward,focal};
  const objects=state.scene==='biomes'?activeBiome.objects:sceneData[state.scene==='building'?'building':'shore'];
  const byMesh=new Map(),plan=[],near=[];
- let remaining=limits[state.quality].near;
+ let remaining=limits[state.quality].near, needles=limits[state.quality].needles;
  for(const [objectIndex,{mesh:id,instance,visible,detail,section}] of objects.entries()){
   if(visible===false)continue;
   const mesh=meshes.get(id);
   const breadth=Math.max(Math.hypot(instance[0],instance[1],instance[2]),Math.hypot(instance[8],instance[9],instance[10]));
   const height=Math.hypot(instance[4],instance[5],instance[6]);
   const woody=section>=1&&section<=6;
-  const projected=focal/Math.max(.25,Math.hypot(instance[12]-eye[0],instance[13]-eye[1],instance[14]-eye[2]));
+  const offset=[instance[12]-eye[0],instance[13]-eye[1],instance[14]-eye[2]];
+  const distance=Math.max(.25,Math.hypot(...offset)),projected=focal/distance;
   const pixels=(woody?breadth:Math.max(breadth,height))*projected;
   if(detail&&pixels<(woody&&state.scene==='biomes'?1.4:woody?.6:3.5))continue;
   const item={id:mesh.far??id,instance,material:mesh.farMaterial,objectIndex};
   plan.push(item);
-  if(mesh.far!==undefined&&remaining>0&&pixels>(woody?(state.quality==='detail'?6:12):(state.quality==='detail'?48:85))){
-   near.push({item,id,pixels,cost:(mesh.count-meshes.get(mesh.far).count)/3});
+  const detailThreshold=woody?(state.quality==='detail'?6:12):(state.quality==='detail'?48:85);
+  if(mesh.far!==undefined&&(pixels>detailThreshold||(mesh.mid!==undefined&&pixels>30))){
+   const facing=Math.max(0,math.dot(offset,forward)/distance);
+   near.push({item,id,mesh,pixels,detailThreshold,priority:pixels*(.17+.83*facing*facing)});
   }
  }
- near.sort((a,b)=>b.pixels-a.pixels);
- for(const {item,id,cost} of near){
-  if(cost>remaining)continue;
-  remaining-=cost;item.id=id;item.material=undefined;
+ near.sort((a,b)=>b.priority-a.priority);
+ for(const {item,id,mesh,pixels,detailThreshold} of near){
+  const count=meshes.get(item.id).count;
+  const fullCost=(mesh.count-count)/3;
+  if(pixels>detailThreshold&&fullCost<=remaining){
+   remaining-=fullCost;item.id=id;item.material=undefined;
+  }else if(mesh.mid!==undefined){
+   const midCost=(meshes.get(mesh.mid).count-count)/3;
+   if(midCost<=needles){needles-=midCost;item.id=mesh.mid;item.material=undefined;}
+  }
  }
  let signature=0;
  for(const {id,objectIndex} of plan)signature=Math.imul(signature^(id==='biome-ground'?71:id)^Math.imul(objectIndex,113),16777619);
@@ -105,11 +113,13 @@ function uploadSceneMeshes(eye){
  }
  groups=[];
  submittedTriangles=0;
+ needleBundles=0;
  for(const [id,data] of byMesh){
   const mesh=meshes.get(id);
   gl.bindBuffer(gl.ARRAY_BUFFER,mesh.instances);
   gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(data),gl.STATIC_DRAW);
   const instances=data.length/24;
+  if(sceneData.meshes.some(candidate=>candidate.mid===id)||mesh.mid!==undefined)needleBundles+=instances;
   groups.push({mesh,instances});
   submittedTriangles+=mesh.count/3*instances;
  }
@@ -159,7 +169,7 @@ function updateCloudCache(c){
  // The cloud pass never samples its own target.
  bind(visibilityTexture,13);gl.bindFramebuffer(gl.FRAMEBUFFER,cloudFbo);gl.viewport(0,0,width,width/2);gl.disable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);gl.disable(gl.BLEND);gl.useProgram(programs.cloud.id);skyUniforms(programs.cloud);gl.bindVertexArray(emptyVAO);gl.drawArrays(gl.TRIANGLES,0,3);cloudKey=key;cloudBuilds++;
 }
-function render(){if(!state.ready||gl.isContextLost())return;resize();skyFrame=celestialFrame(world);const cloudLight=cloudTransmission(world,skyFrame.light,cloudAmount);skyFrame.lightColor=skyFrame.lightColor.map(x=>x*cloudLight);skyFrame.ambient*=.5+.5*cloudLight;const range=state.scene==='biomes'?64:32;lightVP=math.mul(math.ortho(-range,range,-range,range,.1,200),math.look(math.scale(skyFrame.light,100),[0,0,0]));const c=cameraFrame();uploadSceneMeshes(c.eye);updateCloudCache(c);gl.enable(gl.DEPTH_TEST);gl.enable(gl.CULL_FACE);gl.disable(gl.BLEND);
+function render(){if(!state.ready||gl.isContextLost())return;resize();skyFrame=celestialFrame(world);const cloudLight=cloudTransmission(world,skyFrame.light,cloudAmount);skyFrame.lightColor=skyFrame.lightColor.map(x=>x*cloudLight);skyFrame.ambient*=.5+.5*cloudLight;const range=state.scene==='biomes'?64:state.scene==='building'?12:32;lightVP=math.mul(math.ortho(-range,range,-range,range,.1,200),math.look(math.scale(skyFrame.light,100),[0,0,0]));const c=cameraFrame();uploadSceneMeshes(c);updateCloudCache(c);gl.enable(gl.DEPTH_TEST);gl.enable(gl.CULL_FACE);gl.disable(gl.BLEND);
  if(state.shadows&&shadowDirty){gl.bindFramebuffer(gl.FRAMEBUFFER,shadowFbo);gl.viewport(0,0,shadowSize,shadowSize);gl.clear(gl.DEPTH_BUFFER_BIT);let p=programs.shadow;gl.useProgram(p.id);um(p,'uVP',lightVP);uf(p,'uTime',state.time);gl.enable(gl.POLYGON_OFFSET_FILL);gl.polygonOffset(2,4);drawGroups();gl.disable(gl.POLYGON_OFFSET_FILL);shadowDirty=false;}
  gl.bindFramebuffer(gl.FRAMEBUFFER,sceneFbo);gl.viewport(0,0,canvas.width,canvas.height);gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);let p=programs.material;gl.useProgram(p.id);skyUniforms(p);um(p,'uVP',c.vp);um(p,'uView',c.v);um(p,'uLightVP',lightVP);uv(p,'uEye',c.eye);uf(p,'uTime',state.time);uf(p,'uWetTime',state.time);uf(p,'uWaveStrength',state.waveStrength);uf(p,'uFogDensity',.0025);ui(p,'uShadows',state.shadows);ui(p,'uShadowSoft',state.shadowSoft);ui(p,'uNatural',1);ui(p,'uMaterials',state.materials);ui(p,'uWet',state.water);ui(p,'uVisibilityEnabled',0);bind(shadowTexture,0);bind(visibilityTexture,11);ui(p,'uShadow',0);materialTextures.forEach((t,i)=>bind(t,5+i));drawGroups();
  gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.disable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);p=programs.composite;gl.useProgram(p.id);skyUniforms(p);bind(cloudTexture||visibilityTexture,13);ui(p,'uCloudMap',13);ui(p,'uCloudCached',cloudReuse&&cloudAmount>0);for(let i=0;i<4;i++)bind(targets[[0,1,3,2][i]],i);ui(p,'uContact',state.hdr&&state.contact);ui(p,'uWater',state.water);ui(p,'uWaterSSR',state.ssr&&state.water);uf(p,'uWaterTime',state.time);uf(p,'uWaveStrength',state.waveStrength);uf(p,'uExposure',1);uf(p,'uTurbidity',turbidity);ui(p,'uAA',1);uv(p,'uCameraEye',c.eye);uv(p,'uCameraRight',c.right);uv(p,'uCameraUp',c.up);uv(p,'uCameraForward',c.forward);gl.uniform2f(loc(p,'uProjectionScale'),c.p[0],c.p[5]);gl.bindVertexArray(emptyVAO);gl.drawArrays(gl.TRIANGLES,0,3);state.frames++;
@@ -180,7 +190,7 @@ function download(blob,name){
  setTimeout(()=>URL.revokeObjectURL(url),30000);
  toast('Descarga solicitada: '+name);
 }
-function report(){return {viewer:VERSION,desktopBase:'0.003.0.17',browser:navigator.userAgent,screen:{width:innerWidth,height:innerHeight,dpr:devicePixelRatio},render:{width:canvas.width,height:canvas.height,shadow:shadowSize,shadowDepthMiB:shadowSize*shadowSize*4/1048576,trianglesPerPass:submittedTriangles,shadowFilter:state.shadowSoft?'continuous-tent-9':'box-9',hdr:state.hdr},settings:{...state},biome:state.scene==='biomes'?{seed:world.seed,plants:activeBiome.plants,rocks:activeBiome.rocks}:null,celestial:{seed:world.seed,elapsedDays:world.elapsedDays,daySeconds:world.daySeconds,running:skyRunning,cloudAmount,flightAltitude,opticalFov,turbidity},camera,capabilities:{webgl:gl?gl.getParameter(gl.VERSION):null,maxTextureSize:gl?gl.getParameter(gl.MAX_TEXTURE_SIZE):null},cloudCache:{enabled:cloudReuse,width:cloudWidth,height:cloudWidth/2,updates:cloudBuilds,estimatedMiB:cloudWidth*cloudWidth/2*(state.hdr?8:4)/1048576},memoryPolicy:{budgetMiB:4096,kind:'design ceiling, not measured browser allocation'},note:'FPS de presentación del navegador; no es tiempo GPU ni un benchmark de la RTX.'};}
+function report(){return {viewer:VERSION,desktopBase:'0.003.0.17',browser:navigator.userAgent,screen:{width:innerWidth,height:innerHeight,dpr:devicePixelRatio},render:{width:canvas.width,height:canvas.height,shadow:shadowSize,shadowDepthMiB:shadowSize*shadowSize*4/1048576,trianglesPerPass:submittedTriangles,needleBundles,shadowFilter:state.shadowSoft?'continuous-tent-9':'box-9',hdr:state.hdr},settings:{...state},biome:state.scene==='biomes'?{seed:world.seed,plants:activeBiome.plants,rocks:activeBiome.rocks,vines:activeBiome.vines}:null,celestial:{seed:world.seed,elapsedDays:world.elapsedDays,daySeconds:world.daySeconds,running:skyRunning,cloudAmount,flightAltitude,opticalFov,turbidity},camera,capabilities:{webgl:gl?gl.getParameter(gl.VERSION):null,maxTextureSize:gl?gl.getParameter(gl.MAX_TEXTURE_SIZE):null},cloudCache:{enabled:cloudReuse,width:cloudWidth,height:cloudWidth/2,updates:cloudBuilds,estimatedMiB:cloudWidth*cloudWidth/2*(state.hdr?8:4)/1048576},memoryPolicy:{budgetMiB:4096,kind:'design ceiling, not measured browser allocation'},note:'FPS de presentación del navegador; no es tiempo GPU ni un benchmark de la RTX.'};}
 function setupUI(){
  $('biome').onchange=()=>useBiome($('biome').value);
  syncSkyUI();
@@ -221,8 +231,11 @@ async function start(){setupUI();$('quality').value=state.quality;gl=canvas.getC
  $('load-status').textContent='Cargando materiales y geometría de Pléiade…';
  const data=await Promise.all([fetchData('assets/shaders.json'),fetchData('assets/scene.json'),fetchData('assets/manifest.json')]);let shaders=data[0];sceneData=data[1];manifest=data[2];programs.material=program(shaders.geometry,shaders.material);programs.shadow=program(shaders.geometry,shaders.shadow);programs.composite=program(shaders.fullscreen,shaders.composite);programs.cloud=program(shaders.fullscreen,shaders.cloud);
  const populations=[sceneData.shore,sceneData.building,sceneData.snowCabin,...Object.values(sceneData.plants)];
- const needed=new Set(populations.flat().filter(o=>o.visible!==false).map(o=>o.mesh));needed.add(sceneData.meshIds.rock);
- for(const mesh of sceneData.meshes){if(needed.has(mesh.id)&&mesh.far!==undefined)needed.add(mesh.far);}
+ const needed=new Set(populations.flat().filter(o=>o.visible!==false).map(o=>o.mesh));needed.add(sceneData.meshIds.rock);needed.add(sceneData.meshIds.vine);
+ for(const mesh of sceneData.meshes)if(needed.has(mesh.id)){
+  if(mesh.far!==undefined)needed.add(mesh.far);
+  if(mesh.mid!==undefined)needed.add(mesh.mid);
+ }
  await Promise.all(sceneData.meshes.filter(m=>needed.has(m.id)).map(loadMesh));
  const layerInfo=await fetchData('assets/surfaces.json');
  const layerData=await Promise.all(['color','normal'].map(kind=>fetchData(`assets/surfaces-${kind}.rgba`,'buffer')));

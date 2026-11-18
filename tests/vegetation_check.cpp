@@ -42,7 +42,7 @@ static void checkHierarchy(const std::vector<Object> &objects) {
                    parent == VegetationSection::SecondaryBranch);
             break;
         case VegetationSection::Foliage:
-            assert(parent == VegetationSection::Collar || parent == VegetationSection::SecondaryBranch ||
+            assert(parent == VegetationSection::Collar || parent == VegetationSection::PrimaryBranch || parent == VegetationSection::SecondaryBranch ||
                    parent == VegetationSection::Shoot);
             break;
         case VegetationSection::Flower:

@@ -2,11 +2,11 @@
 
 Pléiade es un motor gráfico propio. Este repositorio conserva el visor WebGL 2, su paquete Android y la fuente C++ recuperada de la base PC.
 
-## Android `0.000.00.010`
+## Android `0.000.00.011`
 
-La APK de prueba incluye el visor y los recursos para usarlo sin conexión. Arranca en modo Ahorro. Requiere Android 7 o posterior y un WebView actualizado con WebGL 2. [Descargar desde GitHub Releases](https://github.com/DoomsGarden/Pleiade/releases/tag/v0.000.00.010)
+La APK de prueba incluye el visor y los recursos para usarlo sin conexión. Arranca en modo Ahorro. Requiere Android 7 o posterior y un WebView actualizado con WebGL 2. [Descargar desde GitHub Releases](https://github.com/DoomsGarden/Pleiade/releases/tag/v0.000.00.011)
 
-En **Materiales** se pueden ver de cerca las agujas, las frondes, las flores y la corteza. **Biomas** abre cinco paisajes que se regeneran con la semilla del mundo. La instalación y los FPS de esta revisión siguen pendientes de prueba en el POCO F7 y la Galaxy Tab A9+. El visor y la APK comparten la numeración `0.000.00.000`.
+En **Materiales** se pueden ver de cerca las agujas, las frondes, las flores y la corteza. **Biomas** abre cinco paisajes que se regeneran con la semilla del mundo. Dooms observó unos 30 FPS a 638 × 1280 en las capturas de la `.010`. Los FPS de esta revisión quedan pendientes de prueba en Android. El visor y la APK comparten la numeración `0.000.00.000`.
 
 ## Archivos del proyecto
 

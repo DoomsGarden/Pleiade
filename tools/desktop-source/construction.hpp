@@ -41,23 +41,39 @@ inline void appendCabin(Scene &scene, bool snowy = false) {
         }
         if (row == 7) part({0, y, front}, {1.24f, .305f, .30f}, wood, SurfaceLayer::Timber);
     }
-    const float eaves = floor + wall;
-    const float rise = 1.65f;
-    scene.add(MeshType::Roof, {0, eaves + rise * .5f - .17f, 0}, {6.72f, rise, 5.02f}, beam,
+    const float run = 3.91f, rise = 1.65f;
+    const float roofAngle = std::atan2(rise, run);
+    const float roofEave = floor + wall - .33f, ridge = roofEave + rise;
+    const float gableHalf = width + .12f;
+    const float gableBase = floor + courses * 8 - .034f;
+    // The gable meets the underside of the deck on both slopes.
+    scene.add(MeshType::Roof, {0, (gableBase + ridge) * .5f, 0},
+              {gableHalf * 2, ridge - gableBase, depth * 2 + .24f}, timber,
               .82f, 0, materialPattern(SurfaceLayer::Timber));
-    const float run = 3.91f, roofAngle = std::atan2(rise, run);
+    // A full deck spans the overhang. The face boards sit on this structure.
+    for (float side : {-1.f, 1.f})
+        part({side * run * .5f, roofEave + rise * .5f, 0},
+             {std::hypot(run, rise) + .035f, .17f, 6.40f}, beam, SurfaceLayer::Timber, -side * roofAngle);
+    for (float side : {-1.f, 1.f}) {
+        for (float z : {-3.19f, 3.19f})
+            part({side * run * .5f, roofEave + rise * .5f + .035f, z},
+                 {std::hypot(run, rise) + .04f, .23f, .14f}, timber * .82f, SurfaceLayer::Timber, -side * roofAngle);
+        for (int rafter = -2; rafter <= 2; ++rafter)
+            part({side * 3.56f, ridge - 3.56f * rise / run - .13f, rafter * 1.13f},
+                 {.71f, .19f, .16f}, beam, SurfaceLayer::Timber, -side * roofAngle);
+    }
     for (int board = 0; board < 13; ++board) {
         float z = -2.94f + board * .49f;
         for (float side : {-1.f, 1.f}) {
             V3 tint = V3{.58f, .53f, .46f} * (.92f + .09f * std::sin(board * 3.f));
-            part({side * run * .5f, eaves + rise * .5f + .02f, z},
-                 {std::hypot(run, rise), .13f, .51f}, snowy ? V3{1.f, 1.f, 1.f} : tint,
+            part({side * run * .5f, roofEave + rise * .5f + .112f, z},
+                 {std::hypot(run, rise), .104f, .51f}, snowy ? V3{1.f, 1.f, 1.f} : tint,
                  snowy ? SurfaceLayer::Snow : SurfaceLayer::Timber, -side * roofAngle);
         }
     }
-    part({0, eaves + rise + .04f, 0}, {.23f, .14f, 6.43f}, beam, SurfaceLayer::Timber);
-    part({1.83f, eaves + rise - .12f, -1.22f}, {.66f, 1.82f, .71f}, stone, SurfaceLayer::Masonry);
-    part({1.83f, eaves + rise + .83f, -1.22f}, {.82f, .17f, .81f}, stone, SurfaceLayer::Masonry);
+    part({0, ridge + .13f, 0}, {.26f, .16f, 6.43f}, beam, SurfaceLayer::Timber);
+    part({1.83f, ridge - .27f, -1.22f}, {.66f, 1.82f, .71f}, stone, SurfaceLayer::Masonry);
+    part({1.83f, ridge + .68f, -1.22f}, {.82f, .17f, .81f}, stone, SurfaceLayer::Masonry);
 
     for (float side : {-1.f, 1.f}) {
         const float x = side * 1.98f, y = floor + 1.35f, z = front + .065f;
@@ -68,7 +84,15 @@ inline void appendCabin(Scene &scene, bool snowy = false) {
             part({x, y + dy, z + .12f}, {1.22f, .095f, .15f}, beam, SurfaceLayer::Timber);
         part({x, y - .61f, z + .20f}, {1.37f, .12f, .33f}, timber, SurfaceLayer::Timber);
     }
-    part({0, floor + 1.031f, front + .049f}, {1.13f, 2.08f, .16f}, beam, SurfaceLayer::Timber);
+    part({0, floor + 1.031f, front + .012f}, {1.13f, 2.08f, .15f}, beam * .71f, SurfaceLayer::Timber);
+    for (int board = -2; board <= 2; ++board) {
+        part({board * .218f, floor + 1.035f, front + .10f}, {.216f, 2.045f, .094f},
+             timber * (.69f + .037f * std::sin(board * 4.2f)), SurfaceLayer::Timber);
+        scene.objects.back().gpu.surface.w = -5;
+    }
+    for (float side : {-1.f, 1.f})
+        part({side * .62f, floor + 1.034f, front + .112f}, {.144f, 2.18f, .165f}, beam, SurfaceLayer::Timber);
+    part({0, floor + 2.11f, front + .115f}, {1.39f, .15f, .165f}, beam, SurfaceLayer::Timber);
     part({.36f, floor + 1.04f, front + .162f}, {.14f, .075f, .12f}, stone, SurfaceLayer::Stone);
     for (int row = 0; row < 3; ++row) {
         float z = front + .36f + row * .46f;

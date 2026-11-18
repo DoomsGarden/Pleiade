@@ -1,3 +1,15 @@
+# Versión de prueba 0.000.00.011 — agujas, lianas y cubierta
+
+- Las coníferas cercanas usan agujas individuales también en Ahorro, con un presupuesto de 14.000 triángulos adicionales por pasada. El pino tiene fascículos en pares y corteza con placas y grietas. El abedul tiene lenticelas irregulares y una transición oscura hacia la base. El enebro rastrero tiene más follaje en la unión de sus brotes.
+- En el trópico, la humedad local agrupa las palmeras. Las frondes orientan su arco respecto a la copa y su punta cae con mayor claridad en las hojas maduras. Las lianas enlazan dos palmeras cercanas con una curva sostenida en ambas copas. Algunas se trenzan por pares. Una palmera aislada lleva una liana colgante sin conexión a sus vecinos.
+- La cubierta de la cabaña solapa ambas pendientes con el frontón y añade remates, cabios y una puerta de tablas verticales. La proyección del mapa de sombras de Edificación cubre 24 m de ancho, frente a 64 m en la `.010`, a igual tamaño de textura. Se mantiene el filtro de nueve muestras.
+- Las dunas varían de altura y longitud. El mapa de arena reduce el contraste y rompe la repetición de las ondulaciones. Las montañas usan crestas más redondeadas y desplazan el relieve abrupto hacia el fondo. La altura de colocación de las rocas se interpola sobre los triángulos del terreno.
+- Pruebas C++, GLSL ES y estado del visor completadas. Se compararon ambas compilaciones con Chromium WebGL 2 por software a 638 × 1280 en Detalle y se verificaron firma y contenido de la APK. Los FPS de la `.011` quedan por medir en Android.
+
+Referencias fotográficas. [Pino silvestre, Woodland Trust](https://www.woodlandtrust.org.uk/trees-woods-and-wildlife/british-trees/a-z-of-british-trees/scots-pine/) · [Corteza de abedul, Kew](https://growwild.kew.org/plants/silver-birch) · [Palmera y frondes, UF/IFAS](https://gardeningsolutions.ifas.ufl.edu/mastergardener/resources/plantid/fruits-and-nuts/coconut/) · [Helecho macho, Plantarium](https://www.plantarium.ru/page/image/id/810263.html) · [Lianas, bioGraphic](https://www.biographic.com/rogues-of-the-rainforest/) · [Construcción de madera en Ballenberg](https://www.holzbaukultur.ch/de/bauten/haus-matten-3856_01.php).
+
+---
+
 # Versión de prueba 0.000.00.010 — materiales, vegetación y biomas
 
 - Las coníferas tienen agujas curvas y el pino distribuye las agujas en pares. El abedul lleva hojas anchas con nervaduras. El helecho tiene frondes arqueadas con pinnas individuales y la campanilla tiene pétalos curvos. Una superficie continua recorre cada tronco y el pino mezcla gradualmente la corteza basal con la rojiza. Las secciones y sus relaciones siguen disponibles en la escena de origen para localizar futuras roturas.

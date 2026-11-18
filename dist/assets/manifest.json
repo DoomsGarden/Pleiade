@@ -1,6 +1,6 @@
 {
   "desktop_base": "0.003.0.17",
-  "viewer_version": "0.000.00.010",
+  "viewer_version": "0.000.00.011",
   "texture_size": 512,
   "material_sources": [
     {
@@ -37,7 +37,7 @@
       "height_source_mode": "I;16"
     }
   ],
-  "desktop_shader_sha256": "d54e556d0edab4430b6544f3617442137e8b65590eeb5d105a0b25159dc1be21",
+  "desktop_shader_sha256": "15530d0010ae3290b3ab3d588ec3dbb94b8b7a55dad58fe44b987cd8438e3039",
   "limits": [
     "Escenas de referencia y cinco biomas compactos por semilla.",
     "Texturas 512²; mapas PC 1024².",

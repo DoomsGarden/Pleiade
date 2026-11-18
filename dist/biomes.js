@@ -4,9 +4,9 @@ export const biomes = {
     desert: {title: 'Desierto', description: 'Dunas, ondulaciones de arena y afloramientos dispersos.',
              layer: 9, tint: [1.04, 1.01, .96], view: [0, 0, -12, .43, .32, 30]},
     snow: {title: 'Montañas nevadas', description: 'Crestas de roca, nieve en las laderas y una cabaña en el valle.',
-           layer: 10, tint: [1, .99, 1.02], view: [2, 2, -16, .32, .25, 31]},
+           layer: 10, tint: [1, .99, 1.02], view: [3, 2.1, -19, .24, .19, 33]},
     tropical: {title: 'Trópico', description: 'Palmeras, plantas de hoja ancha y helechos en suelo húmedo.',
-               layer: 12, tint: [.72, .91, .60], view: [0, 0, -3, .65, .35, 21]},
+               layer: 12, tint: [.72, .91, .60], view: [0, 1.7, -3, .43, .07, 18]},
     bamboo: {title: 'Bosque de bambú', description: 'Cañas con nudos, copas cruzadas y sotobosque.',
              layer: 12, tint: [.76, .94, .69], view: [0, 1, -4, .62, .28, 18]}
 };
@@ -37,17 +37,21 @@ function terrainProfile(name, seed) {
         return (x, z) => {
             const crosswind = x * Math.cos(direction) + z * Math.sin(direction);
             const parallel = -x * Math.sin(direction) + z * Math.cos(direction);
-            const drift = noise(parallel * .031, crosswind * .015, seed) * 4.5;
-            const dune = .5 + .5 * Math.sin(crosswind * .18 + drift);
-            return ground(x, z) * .37 + dune ** 2.6 * (3.1 + noise(x * .026, z * .026, seed ^ 891) * 4);
+            const drift = noise(parallel * .027, crosswind * .023, seed) * 5.5 + Math.sin(parallel * .089) * .8;
+            const phase = crosswind * .16 + drift;
+            const dune = .5 + .44 * Math.sin(phase) + .064 * Math.sin(2 * phase + .87);
+            const sand = noise(x * .026, z * .026, seed ^ 891);
+            return ground(x, z) * .51 + Math.max(0, dune) ** 1.75 * (2.6 + sand * 5.8);
         };
     }
     if (name === 'snow') {
         const raw = (x, z) => {
-            const range = smooth((-z - 16 + 8 * Math.sin(x * .067)) / 50);
-            const ridge = 1 - Math.abs(2 * noise(x * .046, z * .038, seed ^ 201) - 1);
-            const facets = noise(x * .12, z * .12, seed ^ 133);
-            return .5 + ground(x, z) + range * (6 + ridge ** 2.4 * 30 + facets * 7);
+            const range = smooth((-z - 25 + 5 * Math.sin(x * .056)) / 37);
+            const warp = (noise(x * .027, z * .031, seed ^ 931) - .5) * 15;
+            const crest = 1 - Math.hypot(noise((x + warp) * .036, z * .039, seed ^ 201) * 2 - 1, .067);
+            const gullies = noise(x * .112 + z * .052, z * .066, seed ^ 133);
+            const scree = noise(x * .23, z * .22, seed ^ 411);
+            return .72 + ground(x, z) * .77 + range * (6 + crest ** 2.65 * 33 + (gullies - .47) * 5.4 + scree * 1.4);
         };
         const padHeight = raw(...snowCabin);
         return (x, z) => {
@@ -84,7 +88,16 @@ function groundMesh(height, cells = 84) {
             indices.set([a, b, a + 1, a + 1, b, b + 1], index);
             index += 6;
         }
-    return {vertices, indices};
+    function surfaceHeight(x, z) {
+        const u = (x + extent) / tile, v = (z + extent) / tile;
+        if (u < 0 || u > cells || v < 0 || v > cells) return height(x, z);
+        const ix = Math.min(cells - 1, Math.floor(u)), iz = Math.min(cells - 1, Math.floor(v));
+        const dx = u - ix, dz = v - iz, a = (iz * side + ix) * 8 + 1;
+        const b = a + side * 8;
+        return dx + dz <= 1 ? vertices[a] * (1 - dx - dz) + vertices[a + 8] * dx + vertices[b] * dz
+                            : vertices[b + 8] * (dx + dz - 1) + vertices[a + 8] * (1 - dz) + vertices[b] * (1 - dx);
+    }
+    return {vertices, indices, surfaceHeight};
 }
 
 function matrix(x, y, z, sx, sy, sz, angle = 0) {
@@ -124,15 +137,79 @@ function selectCanopy(type, habitat, choice) {
     return habitat > .57 && choice > .33 ? 'birch' : choice > .57 ? 'pine' : 'spruce';
 }
 
+function addVine(objects, mesh, from, to, diameter) {
+    const axis = to.map((v, i) => v - from[i]);
+    const span = Math.hypot(...axis);
+    const [x, y, z] = axis.map(v => v / span);
+    const lateral = Math.hypot(x, z);
+    const [rx, rz] = lateral > .001 ? [-z / lateral, x / lateral] : [1, 0];
+    const stride = span + diameter * .5;
+    objects.push({mesh, instance: [
+        rx * diameter, 0, rz * diameter, 0, x * stride, y * stride, z * stride, 0,
+        -rz * y * diameter, (rz * x - rx * z) * diameter, rx * y * diameter, 0,
+        ...from.map((v, i) => (v + to[i]) * .5), 1, .67, .82, .58, 1, .86, 0, 25, 0
+    ]});
+}
+
+function connectVines(objects, mesh, trees, seed) {
+    const degrees = trees.map(() => 0);
+    const neighbors = [];
+    for (let i = 0; i < trees.length; i++)
+        for (let j = i + 1; j < trees.length; j++) {
+            const [a, b] = [trees[i], trees[j]];
+            const distance = Math.hypot(b[0] - a[0], b[2] - a[2]);
+            if (distance >= 2.4 && distance <= 9.8 && Math.abs(b[1] - a[1]) < 4)
+                neighbors.push({i, j, distance});
+        }
+    neighbors.sort((a, b) => a.distance - b.distance);
+
+    function curve(a, b, sag, twines, phase) {
+        const sideways = [a[2] - b[2], b[0] - a[0]];
+        const length = Math.hypot(...sideways);
+        const [nx, nz] = length < .01 ? [1, 0] : sideways.map(v => v / length);
+        const points = 9 + twines * 3;
+        let previous = a;
+        for (let step = 1; step <= points; step++) {
+            const t = step / points, middle = Math.sin(Math.PI * t);
+            const turn = phase + t * (twines ? 13 : 5);
+            const offset = Math.sin(turn) * middle * (twines ? .116 : .135);
+            const point = [mix(a[0], b[0], t) + nx * offset,
+                           mix(a[1], b[1], t) - sag * middle + .052 * middle * Math.cos(turn),
+                           mix(a[2], b[2], t) + nz * offset];
+            addVine(objects, mesh, previous, point, (twines ? .042 : .055) * (1 - .29 * t));
+            previous = point;
+        }
+    }
+
+    let links = 0, hanging = 0;
+    for (const {i, j, distance} of neighbors) {
+        if (degrees[i] >= 2 || degrees[j] >= 2) continue;
+        const [a, b] = [trees[i], trees[j]];
+        const phase = hash(seed ^ Math.imul(i + 1, j + 433)) * Math.PI * 2;
+        const entwined = distance < 7.3 && (degrees[i] || degrees[j] || phase < 2.3);
+        curve(a, b, .19 * distance, entwined, phase);
+        if (entwined) curve(a, b, .19 * distance + .014, entwined, phase + Math.PI);
+        degrees[i]++; degrees[j]++; links++;
+    }
+    for (const [i, a] of trees.entries()) {
+        if (degrees[i] > 0) continue;
+        const side = hash(seed ^ Math.imul(i + 1, 851));
+        curve(a, [a[0] + side * .62 + .33, a[1] - 1.1 - side * 2.1, a[2] - side * .42], .08, false, side * 7);
+        hanging++;
+    }
+    return {links, hanging};
+}
+
 export function createBiome(name, seed, data) {
     const biome = biomes[name];
     if (!biome) throw new RangeError('Bioma desconocido');
-    const height = terrainProfile(name, seed);
-    const terrain = groundMesh(height);
+    const terrain = groundMesh(terrainProfile(name, seed), name === 'snow' ? 96 : 84);
+    const height = terrain.surfaceHeight;
     const objects = [{mesh: 'biome-ground', instance: [
         ...matrix(0, 0, 0, 1, 1, 1), ...biome.tint, 1, .93, 0, 40 + biome.layer, 0
     ]}];
-    const spacing = name === 'bamboo' ? 8 : name === 'desert' ? 13 : 10;
+    const spacing = {bamboo: 8, desert: 13, tropical: 7.6}[name] ?? 10;
+    const crowns = [];
     let plants = 0, rocks = 0;
     for (let row = -5; row <= 3; row++)
         for (let col = -4; col <= 4; col++) {
@@ -146,11 +223,18 @@ export function createBiome(name, seed, data) {
             const slope = Math.hypot(height(x + 1, z) - y, height(x, z + 1) - y);
             const near = Math.hypot(x - 4, z + 5) < 22;
             const cabinClear = name === 'snow' && Math.hypot(x - snowCabin[0], z - snowCabin[1]) < 7;
-            if (!cabinClear && name !== 'desert' && slope < .95 && choice < .34 + .52 * habitat &&
+            const chance = name === 'tropical' ? .25 + .76 * smooth((habitat - .28) / .43) : .34 + .52 * habitat;
+            if (!cabinClear && name !== 'desert' && slope < .95 && choice < chance &&
                 (name !== 'snow' || (y < 6.1 && habitat > .46))) {
                 const species = selectCanopy(name, habitat, choice);
-                const size = (name === 'bamboo' ? 5.8 : name === 'snow' ? 4.4 : 6.1) + hash(cell ^ 822) * 4.4;
+                const size = (name === 'bamboo' ? 5.8 : name === 'snow' ? 4.4 : 5.4) + hash(cell ^ 822) * 5.1;
                 copyPrototype(objects, data.plants[species], x, y - .09, z, size, yaw, .87 + .24 * habitat, !near);
+                if (species === 'palm') {
+                    const bendX = size * .052, bendZ = -size * .011;
+                    crowns.push([x + Math.cos(yaw) * bendX + Math.sin(yaw) * bendZ,
+                                 y - .09 + size * .874,
+                                 z - Math.sin(yaw) * bendX + Math.cos(yaw) * bendZ]);
+                }
                 plants++;
             }
             if (!cabinClear && near && (name === 'forest' || name === 'tropical' || name === 'bamboo') &&
@@ -162,12 +246,12 @@ export function createBiome(name, seed, data) {
                 plants++;
             }
             if (!cabinClear && hash(cell ^ 119) > (name === 'desert' ? .75 : .67)) {
-                const sx = .55 + hash(cell ^ 971) * (name === 'snow' ? 4.7 : 1.8);
+                const sx = .55 + hash(cell ^ 971) * (name === 'snow' ? 3.5 : 1.8);
                 const px = x + spacing * .27, pz = z - spacing * .16;
                 const sy = sx * (.43 + .35 * hash(cell ^ 72));
                 const tint = .70 + .35 * hash(cell ^ 901);
                 objects.push({mesh:data.meshIds.rock,instance:[
-                    ...matrix(px, height(px, pz) + sy * .13, pz, sx, sy, sx * .86, yaw),
+                    ...matrix(px, height(px, pz) - sy * .06, pz, sx, sy, sx * .86, yaw),
                     tint, tint*.98, tint*.91, 1, .84, 0, 31, 0
                 ]});
                 rocks++;
@@ -175,5 +259,6 @@ export function createBiome(name, seed, data) {
         }
     if (name === 'snow')
         copyPrototype(objects, data.snowCabin, snowCabin[0], height(...snowCabin), snowCabin[1], .91, -.18, 1, false);
-    return {height, terrain, objects, plants, rocks};
+    const vines = name === 'tropical' ? connectVines(objects, data.meshIds.vine, crowns, seed) : null;
+    return {height, terrain, objects, plants, rocks, vines};
 }

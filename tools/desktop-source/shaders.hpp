@@ -123,9 +123,10 @@ PBRSurface blendSurface(PBRSurface a,PBRSurface b,float blend){
 }
 PBRSurface bakedWorldSurface(vec3 n,float layer,float meters){
  vec3 weights=pow(abs(n),vec3(4.0));weights/=max(weights.x+weights.y+weights.z,.001);
- PBRSurface x=bakedSurface(worldPosition.zy/meters,layer,n);
+ bool verticalGrain=abs(layer-7.0)<.5&&abs(atlasView+5.0)<.1;
+ PBRSurface x=bakedSurface((verticalGrain?worldPosition.yz:worldPosition.zy)/meters,layer,n);
  PBRSurface y=bakedSurface(worldPosition.xz/meters,layer,n);
- PBRSurface z=bakedSurface(worldPosition.xy/meters,layer,n);
+ PBRSurface z=bakedSurface((verticalGrain?worldPosition.yx:worldPosition.xy)/meters,layer,n);
  return PBRSurface(x.base*weights.x+y.base*weights.y+z.base*weights.z,
    normalize(x.normal*weights.x+y.normal*weights.y+z.normal*weights.z),
    x.rough*weights.x+y.rough*weights.y+z.rough*weights.z);
@@ -175,10 +176,17 @@ vec3 sky(vec3 d){return mix(vec3(.12,.15,.18),vec3(.28,.42,.61),clamp(d.y*.5+.5,
 PBRSurface biomeSurface(vec3 n,float layer){
  float patches=filteredNoise(worldPosition.xz*.16);
  vec2 ground=worldPosition.xz/(layer<10.5?2.9:2.1);
+ if(layer<9.5){
+  vec2 xz=worldPosition.xz;
+  ground+=vec2(filteredNoise(xz*.14+vec2(2.1,9.5))-.5,patches-.5)*.54;
+  PBRSurface sand=bakedSurface(ground,layer,n);
+  sand.base*=.92+.15*patches;
+  sand.normal=normalize(mix(n,sand.normal,.46+.41*patches));
+  return sand;
+ }
  PBRSurface surfaceMap=bakedSurface(ground,layer,n);
- if(layer<9.5)return surfaceMap;
  if(layer<10.5){
-  float snow=smoothstep(-1.0,10.5,worldPosition.y+(patches-.43)*7.0)*smoothstep(.42,.86,n.y);
+  float snow=smoothstep(-5.0,3.0,worldPosition.y+(patches-.43)*4.0)*smoothstep(.48,.88,n.y+(patches-.5)*.16);
   return blendSurface(bakedSurface(ground,11.0,n),surfaceMap,snow);
  }
  return blendSurface(surfaceMap,bakedSurface(ground*.68,11.0,n),
@@ -220,16 +228,16 @@ void main(){
     material=bakedWorldSurface(n,layer,layer<7.5?1.8:2.1);
    } else {
     vec2 texUV=rasterUV;
-    if(layer>=4.5&&layer<6.5)texUV.y*=max(.5,objectDimensions.y*1.15);
+    if((layer>=4.5&&layer<6.5)||(layer>=15.5&&layer<17.5))texUV.y*=max(.26,objectDimensions.y*1.37);
     if(abs(layer-13.0)<.5)texUV.y*=12.0;
     material=bakedSurface(texUV,layer,n);
     if(abs(layer-5.0)<.5&&abs(atlasView+3.0)<.1){
      float tint=smoothstep(.24,.76,rasterLocal.y+.5+(filteredNoise(worldPosition.xz*1.7)-.5)*.33);
      material=blendSurface(material,bakedSurface(texUV,6.0,n),tint);
     }
-    if(abs(layer-5.0)<.5&&abs(atlasView+4.0)<.1){
-     float lenticel=pow(.5+.5*cos(texUV.y*75.0+filteredNoise(texUV*7.0)*6.0),12.0);
-     material.base=mix(material.base,vec3(.56,.59,.55),.68-lenticel*.36);
+    if(abs(layer-16.0)<.5&&abs(atlasView+4.0)<.1){
+     float lower=1.0-smoothstep(.065,.23,rasterLocal.y+.5+(filteredNoise(worldPosition.xz*2.8+worldPosition.y*vec2(.35,.55)) - .5)*.13);
+     material=blendSurface(material,bakedSurface(texUV,5.0,n),lower*.93);
     }
     if((layer>=1.5&&layer<3.5)||(layer>=13.5&&layer<15.5)){
      if(texture(uSurfaceColor,vec3(texUV,layer)).a<(layer>=13.5?.28:.42))discard;

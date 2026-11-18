@@ -8,7 +8,17 @@ inline constexpr std::array vegetationMeshes{
     MeshType::SpruceNeedlesFar, MeshType::PineNeedlesFar, MeshType::JuniperNeedlesFar,
     MeshType::FernFrondFar, MeshType::TreeTrunk, MeshType::BirchLeaves, MeshType::BirchLeavesFar,
     MeshType::BambooStem, MeshType::BambooLeaves, MeshType::PalmFrond, MeshType::Branch,
-    MeshType::TreeTrunkFar, MeshType::BambooStemFar, MeshType::BambooLeavesFar, MeshType::PalmFrondFar};
+    MeshType::TreeTrunkFar, MeshType::BambooStemFar, MeshType::BambooLeavesFar, MeshType::PalmFrondFar,
+    MeshType::SpruceNeedlesMid, MeshType::PineNeedlesMid, MeshType::JuniperNeedlesMid, MeshType::VineStem};
+
+inline MeshType vegetationMiddleMesh(MeshType mesh) {
+    switch (mesh) {
+    case MeshType::SpruceNeedles: return MeshType::SpruceNeedlesMid;
+    case MeshType::PineNeedles: return MeshType::PineNeedlesMid;
+    case MeshType::JuniperNeedles: return MeshType::JuniperNeedlesMid;
+    default: return mesh;
+    }
+}
 
 inline MeshType vegetationFarMesh(MeshType mesh) {
     switch (mesh) {
@@ -28,7 +38,10 @@ inline MeshType vegetationFarMesh(MeshType mesh) {
 inline float foliageMaterialForMesh(MeshType mesh, float fallback) {
     switch (mesh) {
     case MeshType::PineNeedles: return materialPattern(SurfaceLayer::PineNeedle);
+    case MeshType::PineNeedlesMid: return materialPattern(SurfaceLayer::PineNeedle);
     case MeshType::SpruceNeedles:
+    case MeshType::SpruceNeedlesMid:
+    case MeshType::JuniperNeedlesMid:
     case MeshType::JuniperNeedles: return materialPattern(SurfaceLayer::ConiferNeedle);
     case MeshType::PineNeedlesFar: return materialPattern(SurfaceLayer::PineSpray);
     case MeshType::SpruceNeedlesFar:
@@ -104,6 +117,11 @@ void buildVegetationMesh(MeshType mesh, Triangle triangle) {
         ribbon(from, to, cross(x, forward), width, 0.f, 1, true, true);
     };
     const V3 up{0, 1, 0};
+    if (mesh == MeshType::VineStem) {
+        vegetationTube([](float t) { return V3{0, t - .5f, 0}; },
+                       [](float, float) { return .50f; }, 1, 6, false, triangle);
+        return;
+    }
     const bool trunk = mesh == MeshType::TreeTrunk || mesh == MeshType::TreeTrunkFar;
     const bool bambooStem = mesh == MeshType::BambooStem || mesh == MeshType::BambooStemFar;
     if (mesh == MeshType::TreeWood || trunk || bambooStem || mesh == MeshType::Branch) {
@@ -132,32 +150,52 @@ void buildVegetationMesh(MeshType mesh, Triangle triangle) {
         ribbon({0, -.5f, 0}, {0, .48f, 0}, {0, 0, 1}, breadth, -.033f, 2, false);
         return;
     }
-    if (mesh == MeshType::PineNeedles || mesh == MeshType::SpruceNeedles || mesh == MeshType::JuniperNeedles) {
-        const bool pine = mesh == MeshType::PineNeedles, juniper = mesh == MeshType::JuniperNeedles;
-        stalk({0, -.5f, 0}, {0, .48f, 0}, .014f);
-        const int twigs = pine ? 13 : 12;
+    const bool pine = mesh == MeshType::PineNeedles || mesh == MeshType::PineNeedlesMid;
+    const bool juniper = mesh == MeshType::JuniperNeedles || mesh == MeshType::JuniperNeedlesMid;
+    const bool spruce = mesh == MeshType::SpruceNeedles || mesh == MeshType::SpruceNeedlesMid;
+    if (pine || juniper || spruce) {
+        const bool mid = mesh == MeshType::PineNeedlesMid || mesh == MeshType::JuniperNeedlesMid || mesh == MeshType::SpruceNeedlesMid;
+        stalk({0, -.5f, 0}, {0, .48f, 0}, mid ? .009f : .012f);
+        auto needle = [&](V3 from, V3 tip, V3 across, float width, float curve) {
+            const V3 n = unit(cross(across, tip - from));
+            if (!mid) {
+                ribbon(from, tip, across, width, curve, pine ? 3 : 2, true);
+                return;
+            }
+            // A narrow bent strip with a pointed end stays distinct at screen scale.
+            const V3 middle = (from + tip) * .5f + n * curve;
+            const Vertex a{from - across * width * .38f, n, 0, 0};
+            const Vertex b{from + across * width * .38f, n, 1, 0};
+            const Vertex c{middle - across * width, n, 0, .5f};
+            const Vertex d{middle + across * width, n, 1, .5f};
+            triangle(a, b, c, true);
+            triangle(b, d, c, true);
+            triangle(c, d, {tip, n, .5f, 1}, true);
+        };
+        const int twigs = mid ? 8 : pine ? 15 : 13;
         for (int i = 0; i < twigs; ++i) {
-            const float t = float(i) / twigs, a = i * 2.39996f;
+            const float t = float(i) / twigs, a = i * 2.39996f + .33f * std::sin(i * 4.7f);
             const V3 dir{std::cos(a), 0, std::sin(a)}, side{-dir.z, 0, dir.x};
-            const V3 start{.018f * std::sin(8 * t), -.43f + .78f * t, 0};
-            const V3 twig = dir * ((pine ? .31f : .36f) * (1 - .65f * t)) + up * .043f;
-            stalk(start, start + twig, .005f);
-            for (int j = 0; j < (pine ? 4 : 6); ++j) {
-                const V3 from = start + twig * (.21f + .125f * j);
+            const V3 start{.018f * std::sin(8 * t), -.43f + .77f * t + .021f * std::sin(i * 5.6f), 0};
+            const V3 twig = dir * ((pine ? .23f : .28f) * (1 - .51f * t) * (1 + .16f * std::sin(i * 3.8f))) + up * .077f;
+            stalk(start, start + twig, .004f);
+            for (int j = 0; j < (mid ? 4 : 6); ++j) {
+                const V3 from = start + twig * ((pine ? .42f : .16f) + (pine ? .090f : .131f) * j + .045f * std::sin(i * 7.f + j * 5.f));
                 if (pine) {
                     // The two needles in a fascicle start at the same point.
                     for (float pair : {-1.f, 1.f}) {
                         const float curl = .014f + .004f * (j % 3);
-                        V3 tip = from + dir * (.116f - .012f * j) + side * (.035f * pair + .031f * std::sin(i + j)) +
-                                 up * (.095f + .018f * pair);
-                        ribbon(from, tip, unit(cross(tip - from, up)), .0038f, curl * pair, 3, true);
+                        V3 tip = from + dir * (.086f + .023f * std::sin(5 * j + i)) +
+                                 side * (.032f * pair + .068f * std::sin(i * 3.1f + j * 2.15f)) +
+                                 up * (.093f + .041f * std::cos(2 * j + i) + .016f * pair);
+                        needle(from, tip, unit(cross(tip - from, up)), mid ? .0052f : .0038f, curl * pair);
                     }
                 } else {
                     for (int leaf = 0; leaf < (juniper ? 3 : 2); ++leaf) {
                         const float roll = (leaf * (juniper ? 2.0944f : 3.1416f)) + j * .63f + i * .45f;
                         const V3 spread = side * std::cos(roll) + up * std::sin(roll);
-                        const V3 to = from + dir * .045f + spread * (juniper ? .058f : .086f);
-                        ribbon(from, to, unit(cross(to - from, dir)), juniper ? .006f : .0048f, .009f, 2, true);
+                        const V3 to = from + dir * .043f + spread * ((juniper ? .058f : .071f) * (1 + .24f * std::sin(i * 5.f + j)));
+                        needle(from, to, unit(cross(to - from, dir)), juniper ? .006f : .0048f, .009f);
                     }
                 }
             }
@@ -207,7 +245,7 @@ void buildVegetationMesh(MeshType mesh, Triangle triangle) {
     }
 
     if (mesh == MeshType::PalmFrond || mesh == MeshType::PalmFrondFar) {
-        auto rachis = [](float t) { return V3{.25f * std::sin(pi * t) - .17f * t, t - .5f, 0}; };
+        auto rachis = [](float t) { return V3{.22f * std::sin(pi * t) - .34f * t * t, t - .5f, 0}; };
         const bool far = mesh == MeshType::PalmFrondFar;
         const int segments = far ? 8 : 14;
         for (int i = 0; i < segments; ++i) {
@@ -216,9 +254,9 @@ void buildVegetationMesh(MeshType mesh, Triangle triangle) {
             if (t < .125f) continue;
             for (float side : {-1.f, 1.f}) {
                 const V3 from = rachis(t);
-                const float reach = .41f * std::pow(std::sin(pi * t), .75f);
-                const V3 to = from + V3{-.10f, .055f, side * reach};
-                ribbon(from, to, unit(cross(to - from, {1, 0, 0})), reach * (far ? .19f : .13f), .035f, far ? 1 : 2, false);
+                const float reach = .41f * std::pow(std::sin(pi * t), .75f) * (1 + .075f * std::sin(i * 3.4f + side));
+                const V3 to = from + V3{-.065f - .16f * reach, .018f + .046f * (1 - t), side * reach};
+                ribbon(from, to, unit(cross(to - from, {1, 0, 0})), reach * (far ? .155f : .102f), .019f, far ? 1 : 2, false);
             }
         }
         return;

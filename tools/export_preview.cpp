@@ -37,6 +37,8 @@ struct PreviewExporter {
                 float material = foliageMaterialForMesh(far, -1);
                 if (material >= 0) meta << ",\"farMaterial\":" << material;
             }
+            const auto mid = vegetationMiddleMesh(static_cast<MeshType>(i));
+            if (int(mid) != i) meta << ",\"mid\":" << int(mid);
             meta << '}';
         }
         auto scene = [&](const Scene &source) {
@@ -69,7 +71,8 @@ struct PreviewExporter {
         scene(makeShoreScene());
         meta << ",\"building\":";
         scene(makeBuildingScene());
-        meta << ",\"meshIds\":{\"rock\":" << int(MeshType::RockDetail) << ",\"box\":" << int(MeshType::BeveledBox) << "}";
+        meta << ",\"meshIds\":{\"rock\":" << int(MeshType::RockDetail) << ",\"box\":" << int(MeshType::BeveledBox)
+             << ",\"roof\":" << int(MeshType::Roof) << ",\"vine\":" << int(MeshType::VineStem) << "}";
         meta << ",\"plants\":{";
         auto flat = [](float, float) { return 0.f; };
         for (const auto &[name, species] : {
@@ -111,14 +114,21 @@ struct PreviewExporter {
         scene(bamboo);
         Scene palm(0, false);
         size_t crown = appendVegetationPart(palm.objects, MeshType::BambooStem, {0, .47f, 0},
-            {.11f, 1, -.026f}, {.048f, .96f, .048f}, {.98f, .92f, .82f}, materialPattern(SurfaceLayer::Bark),
+            {.11f, 1, -.026f}, {.051f, .96f, .051f}, {.98f, .94f, .91f}, materialPattern(SurfaceLayer::PalmStem),
             VegetationSection::Collar, noVegetationParent);
-        for (int leaf = 0; leaf < 8; ++leaf) {
-            const V3 direction = unit(horizontal(leaf * 2.39996f) + V3{0, leaf < 3 ? -.13f : .24f, 0});
+        for (int leaf = 0; leaf < 10; ++leaf) {
+            const bool young = leaf >= 7;
+            const V3 direction = unit(horizontal(leaf * 2.39996f + random.range(-.15f, .15f)) +
+                                      V3{0, young ? random.range(.45f, .85f) : random.range(-.18f, .20f), 0});
+            const V3 across = unit(cross(direction, std::abs(direction.z) < .92f ? V3{0, 0, 1} : V3{0, 1, 0}));
+            const V3 normal = cross(across, direction);
+            const float roll = std::atan2(normal.y, across.y) + random.range(-.15f, .15f);
             const V3 from{.058f, .944f, -.012f};
-            appendVegetationPart(palm.objects, MeshType::PalmFrond, from + direction * .215f,
-                direction, {.32f, .43f, .32f}, {.94f, 1.04f, .80f}, materialPattern(SurfaceLayer::Broadleaf),
-                VegetationSection::Foliage, crown, 0, leaf * .11f);
+            const float span = young ? random.range(.23f, .34f) : random.range(.35f, .48f);
+            const float spread = young ? .48f : .72f;
+            appendVegetationPart(palm.objects, MeshType::PalmFrond, from + direction * (span * .50f),
+                direction, {span * .83f, span, span * spread}, {.86f, .99f, .80f}, materialPattern(SurfaceLayer::Broadleaf),
+                VegetationSection::Foliage, crown, 0, roll);
         }
         meta << ",\"palm\":";
         scene(palm);

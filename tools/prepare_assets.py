@@ -14,7 +14,7 @@ for name in ['ground','bark','rock']:
    n=resized[:,:,:3].astype(float)/127.5-1;n/=np.maximum(np.linalg.norm(n,axis=2,keepdims=True),1e-6);resized[:,:,:3]=np.clip((n+1)*127.5,0,255).astype(np.uint8)
   packed.append(resized.tobytes())
  (out/f'{name}.rgba').write_bytes(b''.join(packed))
-manifest={'desktop_base':'0.003.0.17','viewer_version':'0.000.00.010','texture_size':512,'material_sources':json.loads((root/'assets/materials.json').read_text()),'desktop_shader_sha256':hashlib.sha256(shader.encode()).hexdigest(),'limits':['Escenas de referencia y cinco biomas compactos por semilla.','Texturas 512²; mapas PC 1024².','Niveles de detalle por tamaño proyectado. Sin streaming de regiones ni FoW en el visor.','Reflejos SSR experimentales, desactivados inicialmente.','Sombras de contacto heredadas de PC: artefactos pendientes.','Solo cámara exterior; agua sin simulación de fluidos.']}
+manifest={'desktop_base':'0.003.0.17','viewer_version':'0.000.00.011','texture_size':512,'material_sources':json.loads((root/'assets/materials.json').read_text()),'desktop_shader_sha256':hashlib.sha256(shader.encode()).hexdigest(),'limits':['Escenas de referencia y cinco biomas compactos por semilla.','Texturas 512²; mapas PC 1024².','Niveles de detalle por tamaño proyectado. Sin streaming de regiones ni FoW en el visor.','Reflejos SSR experimentales, desactivados inicialmente.','Sombras de contacto heredadas de PC: artefactos pendientes.','Solo cámara exterior; agua sin simulación de fluidos.']}
 (out/'manifest.json').write_text(json.dumps(manifest,indent=2,ensure_ascii=False))
 
 import runpy

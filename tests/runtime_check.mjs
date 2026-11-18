@@ -1,6 +1,6 @@
 // Unit-test the JS resource/state layer with a strict mock. This is NOT a GPU/browser test.
 import fs from 'node:fs/promises';import assert from 'node:assert/strict';
-let id=0,boundFbo=null,activeUnit=0,currentProgram=null;const attachments=new Map(),textures=new Map(),buffers=new Map();let drawCalls=0,submittedIndices=0;const uniformWrites=new Map();
+let id=0,boundFbo=null,activeUnit=0,currentProgram=null;const attachments=new Map(),textures=new Map(),buffers=new Map();let drawCalls=0;const uniformWrites=new Map();
 const constants=new Map();const mk=()=>({id:++id});const methods={NO_ERROR:0,
  createFramebuffer:()=>{const f=mk();attachments.set(f,new Set());return f;},bindFramebuffer:(_,f)=>boundFbo=f,
  activeTexture:u=>activeUnit=u-gl.TEXTURE0,bindTexture:(_,t)=>textures.set(activeUnit,t),framebufferTexture2D:(_,__,___,t)=>attachments.get(boundFbo).add(t),
@@ -9,7 +9,7 @@ const constants=new Map();const mk=()=>({id:++id});const methods={NO_ERROR:0,
  getUniformLocation:(p,n)=>({p,n}),uniform1i:(l,v)=>{uniformWrites.set(l.n,v);if(l.p.samplers.has(l.n))l.p.samplers.set(l.n,v);},
  uniform1f:(l,v)=>{assert(Number.isFinite(v));uniformWrites.set(l.n,v);},uniform3fv:(l,v)=>{assert(v.length===3&&Array.from(v).every(Number.isFinite));uniformWrites.set(l.n,[...v]);},
  uniformMatrix4fv:(_,__,m)=>assert(m.length===16&&Array.from(m).every(Number.isFinite),'finite matrix'),
- useProgram:p=>currentProgram=p,drawElementsInstanced:(_,count,__,___,n)=>{assert(count>0&&n>0);submittedIndices+=count*n;draw();},drawArrays:()=>draw(),
+ useProgram:p=>currentProgram=p,drawElementsInstanced:(_,count,__,___,n)=>{assert(count>0&&n>0);draw();},drawArrays:()=>draw(),
  getParameter:p=>p===gl.VERSION?'MOCK (not a GPU)':4096,getError:()=>0,isContextLost:()=>false,getExtension:()=>({}),checkFramebufferStatus:()=>gl.FRAMEBUFFER_COMPLETE,
  createTexture:mk,createBuffer:mk,createVertexArray:mk,bindBuffer:(target,b)=>buffers.set(target,b),bufferData:(target,data)=>{assert(buffers.has(target));assert(data.byteLength>0);},
 };function draw(){if(boundFbo)for(const unit of currentProgram.samplers.values())assert(!attachments.get(boundFbo).has(textures.get(unit)),'texture feedback loop');drawCalls++;}
@@ -63,11 +63,13 @@ console.log('PASS: JS initialization, 9 scene/quality combinations, framebuffer 
 
 pleiade.useScene('shore');
 pleiade.camera.distance=3.5;
-pleiade.setQuality('balanced');submittedIndices=0;pleiade.render();
-const balancedIndices=submittedIndices;
+pleiade.setQuality('balanced');pleiade.render();
+const balancedTriangles=pleiade.report().render.trianglesPerPass;
 const inspectionCamera=pleiade.camera;
-pleiade.setQuality('eco');submittedIndices=0;pleiade.render();
-assert(submittedIndices<balancedIndices*.65,'eco must submit substantially fewer foliage indices');
+pleiade.setQuality('eco');pleiade.render();
+const ecoRender=pleiade.report().render;
+assert(ecoRender.trianglesPerPass<balancedTriangles*.65+14000,'eco reduces geometry with a fixed allowance for nearby needles');
+assert(ecoRender.trianglesPerPass<balancedTriangles&&ecoRender.needleBundles>0,'eco keeps individual nearby needles with fewer triangles');
 assert.equal(pleiade.camera,inspectionCamera,'quality changes preserve the viewing position');
 Object.assign(globalThis,{innerWidth:412,innerHeight:915,devicePixelRatio:2.625});
 pleiade.render();assert.equal(canvas.height,640);assert(canvas.width<canvas.height);
@@ -80,6 +82,11 @@ for(const biome of ['forest','desert','snow','tropical','bamboo']){
  assert.equal(pleiade.state.scene,'biomes');assert.equal(pleiade.state.biome,biome);
  assert(pleiade.report().biome.rocks>0);assert(pleiade.report().render.trianglesPerPass>0);
  if(biome!=='desert')assert(pleiade.report().biome.plants>0);
+ if(biome==='tropical'){
+  const stats=pleiade.report().biome.vines;
+  assert(stats.links>0&&stats.hanging>0,'clustered palms have bridges and isolated palms have hanging vines');
+  pleiade.useBiome(biome);pleiade.render();assert.deepEqual(pleiade.report().biome.vines,stats);
+ }
 }
 pleiade.useScene('shore');
 console.log('PASS: all five procedural biomes select, build and render through the resource mock.');

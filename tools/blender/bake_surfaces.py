@@ -17,7 +17,7 @@ NAMES = (
     "Pino · aguja", "Pícea y enebro · aguja", "Helecho · pinna", "Abedul · hoja",
     "Campanilla · pétalo", "Corteza basal", "Pino · corteza alta", "Madera aserrada",
     "Mampostería", "Arena", "Nieve", "Piedra", "Suelo orgánico", "Bambú · caña",
-    "Pino · fascículos lejanos", "Conífera · ramilla lejana",
+    "Pino · fascículos lejanos", "Conífera · ramilla lejana", "Abedul · corteza", "Palmera · cicatrices foliares",
 )
 
 
@@ -58,18 +58,37 @@ def curve_mask(u, v, start, end, width, bend=0):
     return (1 - smooth(radius - .002, radius + .003, np.abs(distance))) * smooth(-.003, .004, t) * (1 - smooth(.98, 1.01, t))
 
 
+def bark_fissures(u, v, layer, noise_map):
+    columns, rows = (15, 6) if layer == 5 else (12, 9)
+    rng = np.random.default_rng(824 + layer)
+    u = u + (noise_map - .5) * .032
+    v = v + (noise_map - .5) * .060
+    first, second = np.full_like(u, 100.), np.full_like(u, 100.)
+    for row in range(rows):
+        for column in range(columns):
+            cx = (column + rng.uniform(.13, .87)) / columns
+            cy = (row + rng.uniform(.12, .88)) / rows
+            dx = ((u - cx + .5) % 1 - .5) * columns
+            dy = ((v - cy + .5) % 1 - .5) * rows
+            d = np.hypot(dx, dy)
+            second = np.minimum(second, np.maximum(first, d))
+            first = np.minimum(first, d)
+    return 1 - smooth(.013, .18 if layer == 5 else .10, second - first)
+
+
 def needle_spray(u, v, pine):
     coverage = curve_mask(u, v, (.5, .018), (.5, .96), .012, .015)
     stems = coverage.copy()
-    for node in range(9 if pine else 12):
-        y = .10 + node * (.080 if pine else .066)
+    for node in range(10 if pine else 13):
+        y = .099 + node * (.079 if pine else .061) + .015 * np.sin(node * 4.67)
         for side in (-1, 1):
-            base = (.5 + .015 * np.sin(y * np.pi), y + .012 * side)
-            length = (.305 if pine else .25) * (1 - .48 * y)
+            base = (.5 + .015 * np.sin(y * np.pi), y + .015 * side * np.sin(node * 2.72))
+            wavering = 1 + .23 * np.sin(node * 3.3 + side * 2.2)
+            length = (.316 if pine else .26) * (1 - .53 * y) * wavering
             if pine:
-                for leaf in (-1, 1):
-                    end = (.5 + side * (length * (1 + .08 * leaf)), base[1] + .16 + leaf * .029)
-                    coverage = np.maximum(coverage, curve_mask(u, v, base, end, .0060, side * .025))
+                for leaf in (-1.5, -.5, .5, 1.5):
+                    end = (.5 + side * (length * (1 + .086 * leaf)), base[1] + .124 * wavering + leaf * .022)
+                    coverage = np.maximum(coverage, curve_mask(u, v, base, end, .0063, side * .023))
             else:
                 tip = (.5 + side * length, base[1] + .15)
                 twig = curve_mask(u, v, base, tip, .005, side * .009)
@@ -77,8 +96,8 @@ def needle_spray(u, v, pine):
                 for k in range(2, 8):
                     t = k / 8
                     p = (base[0] + (tip[0] - base[0]) * t, base[1] + (tip[1] - base[1]) * t)
-                    end = (p[0] + side * (.048 - .019 * t), p[1] + (.036 if k % 2 else -.041))
-                    coverage = np.maximum(coverage, curve_mask(u, v, p, end, .006, side * .006))
+                    end = (p[0] + side * (.055 - .029 * t), p[1] + (.037 if k % 2 else -.039) * wavering)
+                    coverage = np.maximum(coverage, curve_mask(u, v, p, end, .0065, side * .005))
     return np.maximum(coverage, stems), stems
 
 
@@ -110,7 +129,7 @@ def author_layers():
             alpha = 1 - smooth(width - .012, width + .009, x)
             ribs = np.exp(-np.abs(np.sin(np.pi * (v * (13 if layer == 2 else 8) - x * 1.4))) * 15)
             tint = np.clip(leaf_noise * .64 + vein * .26 + ribs * .16 + v * .12, 0, 1)
-            color = mix((.09, .22, .054), (.53, .68, .22), tint)
+            color = mix((.095, .231, .071), (.44, .59, .25), tint)
             height = .2 * vein + .10 * ribs + .26 * (1 - x * x) + fine * .10
             rough = .55 + broad * .32
         elif layer == 4:
@@ -119,16 +138,17 @@ def author_layers():
             height = fibres * .16 + broad * .31 + fine * .04
             rough = .47 + grain * .34
         elif layer in (5, 6):
-            warped = u + .027 * np.sin(v * np.pi * 4) + (broad - .5) * .043
-            stripes = .5 + .5 * np.sin(warped * 2 * np.pi * 9)
-            cracks = (.5 + .5 * np.sin((v + broad * .26) * 2 * np.pi * (6 if layer == 6 else 2))) ** 9
-            ridge = smooth(.14, .85, stripes) * (1 - cracks * (.80 if layer == 6 else .26))
+            slabs = blender_noise(12, .61, 23.1 + layer, along_grain=36)
+            splinters = blender_noise(29, .58, 42.1 + layer, along_grain=109)
+            block = slabs * .66 + splinters * .23 + broad * .11
+            fissure = bark_fissures(u, v, layer, .72 * fine + .28 * splinters)
+            scales = smooth(.39, .65, block + (fine - .5) * (.22 if layer == 6 else .10))
             dark, light = {
                 5: ((.18, .14, .105), (.52, .44, .36)),
                 6: ((.23, .13, .095), (.63, .40, .265)),
             }[layer]
-            color = mix(dark, light, .24 * broad + .16 * fine + ridge * .56)
-            height = ridge * .37 + fine * .20 + broad * .13
+            color = mix(dark, light, .28 * broad + .16 * fine + scales * .43 - fissure * .20)
+            height = -.28 * fissure + .31 * scales + .21 * splinters + .13 * fine
             rough = .79 + grain * .18
         elif layer == 7:
             fibres = blender_noise(89, .31, 16.2, along_grain=5)
@@ -146,9 +166,11 @@ def author_layers():
             height = body * .38 + fine * .17 + broad * .11
             rough = .82 + .14 * grain
         elif layer == 9:
-            ripple = .5 + .5 * np.sin((v * 13 + u * 2 + .27 * np.sin(u * np.pi * 2) + .26 * broad) * np.pi * 2)
-            color = mix((.56, .385, .235), (.83, .685, .46), .56 * grain + .40 * ripple)
-            height = ripple * .16 + fine * .125 + speckle * .05
+            phase = v * 12 - u * 2 + (blender_noise(9, .66, 25.4) - .5) * 1.76
+            ripple = .5 + .5 * np.sin(phase * np.pi * 2)
+            ripple_strength = smooth(.22, .68, broad) * (.55 + .45 * fine)
+            color = mix((.59, .45, .30), (.83, .69, .49), .76 * grain + .12 * ripple * ripple_strength)
+            height = ripple ** 2 * .12 * ripple_strength + fine * .11 + speckle * .043
             rough = .83 + fine * .13
         elif layer == 10:
             color = mix((.63, .72, .78), (.98, .985, .96), .3 + grain * .68)
@@ -166,12 +188,37 @@ def author_layers():
             color = mix((.18, .24, .10), (.59, .65, .32), .25 * grain + fibre * .10 + node * .50 + .19)
             height = node * .29 + fibre * .04 + grain * .14
             rough = .55 + grain * .22 + node * .10
-        else:
+        elif layer in (14, 15):
             alpha, stem = needle_spray(u, v, layer == 14)
             color = mix((.11, .24, .10), (.42, .55, .23), grain * .6 + v * .31)
             color = mix(color, (.31, .21, .109), stem * .87)
             height = broad * .21 + fine * .08 + stem * .13
             rough = .61 + .25 * broad
+        elif layer == 16:
+            scars = np.zeros_like(u)
+            scar_rng = np.random.default_rng(910)
+            for _ in range(49):
+                cx, cy = scar_rng.random(2)
+                length, thickness = scar_rng.uniform(.008, .084), scar_rng.uniform(.0018, .009)
+                dx = (u - cx + .5) % 1 - .5
+                dy = (v - cy + .5 + dx * scar_rng.uniform(-.14, .14)) % 1 - .5
+                scar = np.exp(-((dx / length) ** 4 + (dy / thickness) ** 2))
+                scars = np.maximum(scars, scar * scar_rng.uniform(.35, .96))
+            peel = blender_noise(58, .48, 34.1, along_grain=10)
+            color = mix((.65, .637, .592), (.90, .883, .824), .35 * broad + .23 * fine + .34 * peel)
+            color = mix(color, (.22, .20, .159), .83 * scars)
+            height = .16 * peel - .32 * scars + .07 * fine
+            rough = .71 + .19 * grain
+        else:
+            bands = np.zeros_like(u)
+            for mark in (.052, .186, .295, .432, .563, .72, .814, .941):
+                offset = .010 * np.sin(u * np.pi * 2 + mark * 9) + (broad - .5) * .029
+                distance = (v - mark + offset + .5) % 1 - .5
+                bands = np.maximum(bands, np.exp(-(distance / .008) ** 2) * (.63 + .37 * fine))
+            color = mix((.30, .282, .221), (.62, .595, .50), .69 * grain + .23 * broad)
+            color = mix(color, (.216, .20, .154), .69 * bands)
+            height = .24 * fine - .24 * bands + .14 * broad
+            rough = .78 + .17 * grain
         slope_x = (np.roll(height, -1, axis=1) - np.roll(height, 1, axis=1)) * (2.7 if layer in (5, 6, 7, 8, 11) else 1.55)
         slope_y = (np.roll(height, -1, axis=0) - np.roll(height, 1, axis=0)) * (2.7 if layer in (5, 6, 7, 8, 11) else 1.55)
         normal = np.stack((-slope_x, -slope_y, np.ones_like(u)), axis=-1)
@@ -214,7 +261,7 @@ def make_blender_scene(layers, path):
         links.new(normal_rough.outputs["Color"], normal.inputs["Color"])
         links.new(normal.outputs["Normal"], shader.inputs["Normal"])
         cutout = index in (2, 3, 14, 15)
-        position = ((index % 4 - 1.5) * 2.5, (1.5 - index // 4) * 2.3, 0)
+        position = ((index % 5 - 2) * 2.5, (1.5 - index // 5) * 2.3, 0)
         if cutout:
             links.new(albedo.outputs["Alpha"], shader.inputs["Alpha"])
             bpy.ops.mesh.primitive_plane_add(size=1.95, location=position)
@@ -236,10 +283,10 @@ def make_blender_scene(layers, path):
     bpy.ops.object.camera_add(location=(0, 0, 14))
     camera = bpy.context.object
     camera.data.type = "ORTHO"
-    camera.data.ortho_scale = 10.6
+    camera.data.ortho_scale = 13
     scene = bpy.context.scene
     scene.camera = camera
-    scene.render.resolution_x = 1100
+    scene.render.resolution_x = 1350
     scene.render.resolution_y = 1000
     scene.render.resolution_percentage = 100
     scene.world = bpy.data.worlds.new("Luz ambiente")
