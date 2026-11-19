@@ -1,5 +1,6 @@
 // Unit-test the JS resource/state layer with a strict mock. This is NOT a GPU/browser test.
 import fs from 'node:fs/promises';import assert from 'node:assert/strict';
+import {terrainPieces} from '../dist/biomes.js';
 let id=0,boundFbo=null,activeUnit=0,currentProgram=null;const attachments=new Map(),textures=new Map(),buffers=new Map();let drawCalls=0;const uniformWrites=new Map();
 const constants=new Map();const mk=()=>({id:++id});const methods={NO_ERROR:0,
  createFramebuffer:()=>{const f=mk();attachments.set(f,new Set());return f;},bindFramebuffer:(_,f)=>boundFbo=f,
@@ -68,7 +69,12 @@ const balancedTriangles=pleiade.report().render.trianglesPerPass;
 const inspectionCamera=pleiade.camera;
 pleiade.setQuality('eco');pleiade.render();
 const ecoRender=pleiade.report().render;
-assert(ecoRender.trianglesPerPass<balancedTriangles*.65+14000,'eco reduces geometry with a fixed allowance for nearby needles');
+const geometry=JSON.parse(await fs.readFile(new URL('../dist/assets/scene.json',import.meta.url),'utf8'));
+const meshById=new Map(geometry.meshes.map(mesh=>[mesh.id,mesh]));
+const allFar=geometry.shore.filter(part=>part.visible!==false).reduce((sum,part)=>{
+ const mesh=meshById.get(part.mesh);return sum+meshById.get(mesh.far??mesh.id).indices/3;
+},0);
+assert(ecoRender.trianglesPerPass<=allFar+14000,'eco respects the additional triangle budget');
 assert(ecoRender.trianglesPerPass<balancedTriangles&&ecoRender.needleBundles>0,'eco keeps individual nearby needles with fewer triangles');
 assert.equal(pleiade.camera,inspectionCamera,'quality changes preserve the viewing position');
 Object.assign(globalThis,{innerWidth:412,innerHeight:915,devicePixelRatio:2.625});
@@ -82,11 +88,29 @@ for(const biome of ['forest','desert','snow','tropical','bamboo']){
  assert.equal(pleiade.state.scene,'biomes');assert.equal(pleiade.state.biome,biome);
  assert(pleiade.report().biome.rocks>0);assert(pleiade.report().render.trianglesPerPass>0);
  if(biome!=='desert')assert(pleiade.report().biome.plants>0);
+ assert.equal(pleiade.report().biome.tiles,9);
  if(biome==='tropical'){
   const stats=pleiade.report().biome.vines;
-  assert(stats.links>0&&stats.hanging>0,'clustered palms have bridges and isolated palms have hanging vines');
+  assert(stats.links>0&&stats.hanging>0&&stats.climbing>0,'the jungle has bridges, hanging stems and rooted climbing vines');
   pleiade.useBiome(biome);pleiade.render();assert.deepEqual(pleiade.report().biome.vines,stats);
  }
+}
+for(const seed of [0,12345,4294967295]){
+ const side=13, cells=side-1;
+ const profile=(x,z)=>Math.sin(x*.1)+Math.cos(z*.07);
+ const {pieces,surfaceHeight}=terrainPieces(profile,seed,cells);
+ const replaced=terrainPieces(profile,seed,cells,pieces.map(piece=>(piece.variant+1)%9)).pieces;
+ assert.equal(new Set(pieces.map(piece=>piece.variant)).size,9);
+ function vertex(tile,x,z){return pieces[tile].vertices.slice((z*side+x)*8,(z*side+x+1)*8);}
+ for(let tile=0;tile<9;tile++)for(let i=0;i<=cells;i++){
+  if(tile%3<2)assert.deepEqual(vertex(tile,cells,i),vertex(tile+1,0,i));
+  if(tile<6)assert.deepEqual(vertex(tile,i,cells),vertex(tile+3,i,0));
+  const base=(i*side+cells)*8;
+  assert.deepEqual(pieces[tile].vertices.slice(base,base+8),replaced[tile].vertices.slice(base,base+8));
+  const [x,y,z]=vertex(tile,i,i);
+  assert(Math.abs(surfaceHeight(x,z)-y)<.00001);
+ }
+ assert.notDeepEqual(pieces[0].vertices,replaced[0].vertices);
 }
 pleiade.useScene('shore');
 console.log('PASS: all five procedural biomes select, build and render through the resource mock.');

@@ -13,11 +13,13 @@ import numpy as np
 from mathutils import Vector, noise
 
 SIZE = 256
+SCAN = Path(__file__).resolve().parents[2] / "assets/blender/scans"
 NAMES = (
     "Pino · aguja", "Pícea y enebro · aguja", "Helecho · pinna", "Abedul · hoja",
     "Campanilla · pétalo", "Corteza basal", "Pino · corteza alta", "Madera aserrada",
     "Mampostería", "Arena", "Nieve", "Piedra", "Suelo orgánico", "Bambú · caña",
     "Pino · fascículos lejanos", "Conífera · ramilla lejana", "Abedul · corteza", "Palmera · cicatrices foliares",
+    "Caducifolia · rama lejana", "Helecho · fronde lejana",
 )
 
 
@@ -88,17 +90,54 @@ def needle_spray(u, v, pine):
             if pine:
                 for leaf in (-1.5, -.5, .5, 1.5):
                     end = (.5 + side * (length * (1 + .086 * leaf)), base[1] + .124 * wavering + leaf * .022)
-                    coverage = np.maximum(coverage, curve_mask(u, v, base, end, .0063, side * .023))
+                    for spray in (-.75, .6):
+                        start=(base[0]+side*length*.18,base[1]+spray*.014)
+                        tip=(end[0]+side*.014*spray,end[1]+spray*.046)
+                        coverage = np.maximum(coverage, curve_mask(u, v, start, tip, .0101, side * .023))
             else:
                 tip = (.5 + side * length, base[1] + .15)
                 twig = curve_mask(u, v, base, tip, .005, side * .009)
                 stems = np.maximum(stems, twig)
-                for k in range(2, 8):
-                    t = k / 8
+                for k in range(2, 14):
+                    t = k / 14
                     p = (base[0] + (tip[0] - base[0]) * t, base[1] + (tip[1] - base[1]) * t)
                     end = (p[0] + side * (.055 - .029 * t), p[1] + (.037 if k % 2 else -.039) * wavering)
-                    coverage = np.maximum(coverage, curve_mask(u, v, p, end, .0065, side * .005))
+                    coverage = np.maximum(coverage, curve_mask(u, v, p, end, .0093, side * .004))
     return np.maximum(coverage, stems), stems
+
+
+def scan_map(name):
+    image = bpy.data.images.load(str(SCAN / name), check_existing=False)
+    image.colorspace_settings.name = "Non-Color"
+    image.scale(SIZE, SIZE)
+    pixels = np.asarray(image.pixels[:], dtype=np.float32).reshape(SIZE, SIZE, 4)
+    bpy.data.images.remove(image)
+    return pixels
+
+
+def broad_spray(u, v, fern):
+    center=curve_mask(u,v,(.50,.02),(.50,.98),.008,.014)
+    coverage=center.copy()
+    for j in range(13 if fern else 8):
+        y=.13+j*(.061 if fern else .095)
+        for side in (-1,1):
+            angle=side*(.66 + .095*np.sin(j*4.1+side))
+            length=(.38 if fern else .35) * np.sin(np.pi*y)**(.7 if fern else .53)
+            x0=.50+side*length*.49+.013*np.sin(j*1.32)
+            y0=y+length*.23+side*.008
+            dx,dy=u-x0,v-y0
+            along=dx*np.sin(angle)+dy*np.cos(angle)
+            across=dx*np.cos(angle)-dy*np.sin(angle)
+            if fern:
+                r=np.hypot(along/(length*.76),across/(.031+.018*np.sin(np.pi*y)))
+                coverage=np.maximum(coverage,1-smooth(.83,1.0,r+.058*np.cos(along*455)))
+            else:
+                for offset in (-1,1):
+                    r=np.hypot((along+offset*.035)/(length*.49),(across+offset*.041)/(.055+.027*np.sin(j*3.7+side)**2))
+                    coverage=np.maximum(coverage,1-smooth(.86,1.01,r))
+            petiole=curve_mask(u,v,(.5,y),(x0,y0),.004,side*.003)
+            coverage=np.maximum(coverage,petiole)
+    return coverage,center
 
 
 def author_layers():
@@ -113,6 +152,9 @@ def author_layers():
     x = np.abs(u - .5) * 2
     vein = np.exp(-x * 45)
     layers = []
+    pine_color = scan_map("pine_bark-Diffuse.jpg")[..., :3]
+    pine_normal = scan_map("pine_bark-nor_gl.jpg")[..., :3]*2-1
+    pine_roughness = scan_map("pine_bark-Rough.jpg")[..., 0]
 
     for layer in range(len(NAMES)):
         alpha = np.ones_like(u)
@@ -147,15 +189,27 @@ def author_layers():
                 5: ((.18, .14, .105), (.52, .44, .36)),
                 6: ((.23, .13, .095), (.63, .40, .265)),
             }[layer]
-            color = mix(dark, light, .28 * broad + .16 * fine + scales * .43 - fissure * .20)
+            authored = mix(dark, light, .28 * broad + .16 * fine + scales * .43 - fissure * .20)
+            scanned = pine_color if layer == 5 else pine_color*np.array((1.26, .98, .80))
+            lichen = smooth(.61,.83, .62*broad+.38*fine)*(.51 if layer == 5 else .19)
+            color = mix(mix(authored,scanned,.89),(.44,.457,.33),lichen)
             height = -.28 * fissure + .31 * scales + .21 * splinters + .13 * fine
-            rough = .79 + grain * .18
+            rough = .26*(.79+grain*.18) + .74*pine_roughness
         elif layer == 7:
-            fibres = blender_noise(89, .31, 16.2, along_grain=5)
-            growth = blender_noise(29, .49, 27.7, along_grain=7)
-            streaks = smooth(.23, .76, .65 * growth + .35 * fibres)
-            color = mix((.265, .177, .113), (.57, .43, .303), .70 * streaks + .30 * grain)
-            height = .16 * fibres + .084 * growth + .058 * fine
+            fibres = blender_noise(114, .46, 16.2, along_grain=13)
+            growth = blender_noise(43, .51, 27.7, along_grain=9)
+            knots = np.zeros_like(u)
+            warped = v.copy()
+            for cx,cy,r in [(.18,.21,.088),(.61,.81,.065),(.85,.43,.102)]:
+                dx=(u-cx+.5)%1-.5;dy=(v-cy+.5)%1-.5
+                mask=np.exp(-((dx/(r*1.8))**2+(dy/r)**2))
+                warped += dy*mask*.61
+                knots=np.maximum(knots,mask*.76 + mask*.17*np.cos(np.hypot(dx*.55,dy)*270))
+            rings=.5+.5*np.sin(2*np.pi*(warped*31+(growth-.5)*.58))
+            streaks = smooth(.23, .76, .50 * growth + .30 * fibres + .20*rings)
+            color = mix((.29, .211, .15), (.61, .489, .377), .63 * streaks + .37 * grain)
+            color=mix(color,(.21,.143,.106),knots*.64)
+            height = .20 * fibres + .089 * growth + .07 * fine + .06*rings - knots*.09
             rough = .69 + .22 * grain
         elif layer == 8:
             courses = v * 4
@@ -197,19 +251,20 @@ def author_layers():
         elif layer == 16:
             scars = np.zeros_like(u)
             scar_rng = np.random.default_rng(910)
-            for _ in range(49):
+            for _ in range(58):
                 cx, cy = scar_rng.random(2)
-                length, thickness = scar_rng.uniform(.008, .084), scar_rng.uniform(.0018, .009)
+                length, thickness = scar_rng.uniform(.008, .097), scar_rng.uniform(.0018, .012)
                 dx = (u - cx + .5) % 1 - .5
                 dy = (v - cy + .5 + dx * scar_rng.uniform(-.14, .14)) % 1 - .5
                 scar = np.exp(-((dx / length) ** 4 + (dy / thickness) ** 2))
                 scars = np.maximum(scars, scar * scar_rng.uniform(.35, .96))
             peel = blender_noise(58, .48, 34.1, along_grain=10)
             color = mix((.65, .637, .592), (.90, .883, .824), .35 * broad + .23 * fine + .34 * peel)
-            color = mix(color, (.22, .20, .159), .83 * scars)
+            tears=smooth(.64,.78,peel)*smooth(.49,.72,broad)*.42
+            color = mix(color, (.18, .155, .126), np.maximum(.90*scars,tears))
             height = .16 * peel - .32 * scars + .07 * fine
             rough = .71 + .19 * grain
-        else:
+        elif layer == 17:
             bands = np.zeros_like(u)
             for mark in (.052, .186, .295, .432, .563, .72, .814, .941):
                 offset = .010 * np.sin(u * np.pi * 2 + mark * 9) + (broad - .5) * .029
@@ -219,9 +274,17 @@ def author_layers():
             color = mix(color, (.216, .20, .154), .69 * bands)
             height = .24 * fine - .24 * bands + .14 * broad
             rough = .78 + .17 * grain
+        else:
+            alpha,midrib=broad_spray(u,v,layer==19)
+            color=mix((.105,.246,.063),(.46,.615,.22),.75*grain+.18*v)
+            color=mix(color,(.30,.37,.16),.57*midrib)
+            height=.18*broad+.11*fine+.21*midrib
+            rough=.61+.22*grain
         slope_x = (np.roll(height, -1, axis=1) - np.roll(height, 1, axis=1)) * (2.7 if layer in (5, 6, 7, 8, 11) else 1.55)
         slope_y = (np.roll(height, -1, axis=0) - np.roll(height, 1, axis=0)) * (2.7 if layer in (5, 6, 7, 8, 11) else 1.55)
         normal = np.stack((-slope_x, -slope_y, np.ones_like(u)), axis=-1)
+        if layer in (5,6):
+            normal=normal*.22 + pine_normal*.78
         normal /= np.linalg.norm(normal, axis=-1, keepdims=True)
         layers.append((np.dstack((color, alpha)), np.dstack((normal * .5 + .5, rough))))
     return layers
@@ -260,7 +323,7 @@ def make_blender_scene(layers, path):
         links.new(normal_rough.outputs["Alpha"], shader.inputs["Roughness"])
         links.new(normal_rough.outputs["Color"], normal.inputs["Color"])
         links.new(normal.outputs["Normal"], shader.inputs["Normal"])
-        cutout = index in (2, 3, 14, 15)
+        cutout = index in (2, 3, 14, 15, 18, 19)
         position = ((index % 5 - 2) * 2.5, (1.5 - index // 5) * 2.3, 0)
         if cutout:
             links.new(albedo.outputs["Alpha"], shader.inputs["Alpha"])

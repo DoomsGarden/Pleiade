@@ -77,11 +77,16 @@ struct PreviewExporter {
         auto flat = [](float, float) { return 0.f; };
         for (const auto &[name, species] : {
                  std::pair{"spruce", TreeSpecies::Spruce}, std::pair{"pine", TreeSpecies::ScotsPine},
-                 std::pair{"birch", TreeSpecies::Birch}}) {
+                 std::pair{"birch", TreeSpecies::Birch}, std::pair{"tropicalTree", TreeSpecies::TropicalBroadleaf}}) {
             Scene specimen(0, false);
             appendTree(specimen.objects, species, {0, 0, 0}, 1.f, 491u, flat);
             meta << '"' << name << "\":";
             scene(specimen);
+            meta << ',';
+            Scene variant(0, false);
+            appendTree(variant.objects, species, {0, 0, 0}, 1.f, 846u, flat);
+            meta << '"' << name << "2\":";
+            scene(variant);
             meta << ',';
         }
         for (const auto &[name, species] : {

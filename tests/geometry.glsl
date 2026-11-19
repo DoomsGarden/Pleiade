@@ -15,6 +15,7 @@ out vec3 rasterPosition;
 out vec3 rasterLocal;
 out vec2 rasterUV;
 flat out vec3 objectDimensions;
+flat out vec3 objectCenter;
 flat out vec2 coverage;
 flat out mat4 objectModel;
 flat out mat3 objectNormals;
@@ -33,6 +34,7 @@ void main(){
  // Orthogonal rotation + nonuniform scale: inverse transpose without per-vertex inverse.
  vec3 scale2=vec3(dot(aModel[0].xyz,aModel[0].xyz),dot(aModel[1].xyz,aModel[1].xyz),dot(aModel[2].xyz,aModel[2].xyz));
  objectDimensions=sqrt(scale2);
+ objectCenter=aModel[3].xyz;
  objectNormals=mat3(aModel[0].xyz/scale2.x,aModel[1].xyz/scale2.y,aModel[2].xyz/scale2.z);
  worldNormal=normalize(objectNormals*aNormal);
  if(aSurface.w>0.5 && aSurface.w<1.5 && aSurface.z<9.5){

@@ -77,7 +77,10 @@ inline void appendCabin(Scene &scene, bool snowy = false) {
 
     for (float side : {-1.f, 1.f}) {
         const float x = side * 1.98f, y = floor + 1.35f, z = front + .065f;
-        scene.add(MeshType::Cube, {x, y, z}, {1.03f, .91f, .08f}, {.035f, .061f, .057f}, .32f, .12f, 0);
+        for(float dx : {-.269f,.269f})
+            for(float dy : {-.23f,.23f})
+                scene.add(MeshType::Cube,{x+dx,y+dy,z+.037f},{.51f,.445f,.025f},
+                          {.016f,.026f,.024f},.085f,0,18.f);
         for (float dx : {-.55f, 0.f, .55f})
             part({x + dx, y, z + .12f}, {.105f, 1.12f, .15f}, beam, SurfaceLayer::Timber);
         for (float dy : {-.50f, 0.f, .50f})

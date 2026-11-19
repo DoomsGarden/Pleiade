@@ -46,6 +46,8 @@ inline float foliageMaterialForMesh(MeshType mesh, float fallback) {
     case MeshType::PineNeedlesFar: return materialPattern(SurfaceLayer::PineSpray);
     case MeshType::SpruceNeedlesFar:
     case MeshType::JuniperNeedlesFar: return materialPattern(SurfaceLayer::ConiferSpray);
+    case MeshType::BirchLeavesFar: return materialPattern(SurfaceLayer::BroadleafSpray);
+    case MeshType::FernFrondFar: return materialPattern(SurfaceLayer::FernSpray);
     default: return fallback;
     }
 }
@@ -144,7 +146,7 @@ void buildVegetationMesh(MeshType mesh, Triangle triangle) {
     }
 
     if (mesh == MeshType::PineNeedlesFar || mesh == MeshType::SpruceNeedlesFar ||
-        mesh == MeshType::JuniperNeedlesFar) {
+        mesh == MeshType::JuniperNeedlesFar || mesh == MeshType::BirchLeavesFar) {
         const float breadth = mesh == MeshType::PineNeedlesFar ? .44f : .46f;
         ribbon({0, -.5f, 0}, {0, .49f, 0}, {1, 0, 0}, breadth, .045f, 2, false);
         ribbon({0, -.5f, 0}, {0, .48f, 0}, {0, 0, 1}, breadth, -.033f, 2, false);
@@ -155,7 +157,7 @@ void buildVegetationMesh(MeshType mesh, Triangle triangle) {
     const bool spruce = mesh == MeshType::SpruceNeedles || mesh == MeshType::SpruceNeedlesMid;
     if (pine || juniper || spruce) {
         const bool mid = mesh == MeshType::PineNeedlesMid || mesh == MeshType::JuniperNeedlesMid || mesh == MeshType::SpruceNeedlesMid;
-        stalk({0, -.5f, 0}, {0, .48f, 0}, mid ? .009f : .012f);
+        stalk({0, -.49f, 0}, {0, .41f, 0}, mid ? .006f : .008f);
         auto needle = [&](V3 from, V3 tip, V3 across, float width, float curve) {
             const V3 n = unit(cross(across, tip - from));
             if (!mid) {
@@ -172,32 +174,42 @@ void buildVegetationMesh(MeshType mesh, Triangle triangle) {
             triangle(b, d, c, true);
             triangle(c, d, {tip, n, .5f, 1}, true);
         };
-        const int twigs = mid ? 8 : pine ? 15 : 13;
+        if(pine){
+            // Pine fascicles are concentrated on several distinct terminal shoots.
+            const int shoots=mid?5:8, pairs=mid?13:25;
+            for(int i=0;i<shoots;++i){
+                const float t=float(i)/shoots, a=i*2.39996f+.61f*std::sin(i*4.1f);
+                const V3 outward{std::cos(a),0,std::sin(a)}, across{-outward.z,0,outward.x};
+                const V3 start{0,-.40f+.60f*t,0};
+                const V3 growth=outward*(.23f-.072f*t)+up*(.16f+.04f*std::cos(i*2.8f));
+                stalk(start,start+growth,.0037f);
+                for(int j=0;j<pairs;++j){
+                    const float f=float(j)/pairs, angle=j*2.39996f;
+                    const V3 origin=start+growth*(.48f+.54f*f)+across*(.009f*std::sin(j*5.f));
+                    const V3 spread=across*std::cos(angle)+up*(.53f*std::sin(angle));
+                    for(float side : {-1.f,1.f}){
+                        const V3 tip=origin+unit(growth)*(.075f+.037f*std::sin(j*3.3f+i))+spread*.064f+across*(side*.014f);
+                        needle(origin,tip,unit(cross(tip-origin,up)),mid?.0045f:.0036f,.010f*side);
+                    }
+                }
+            }
+            return;
+        }
+        const int twigs = mid ? 9 : 13;
         for (int i = 0; i < twigs; ++i) {
-            const float t = float(i) / twigs, a = i * 2.39996f + .33f * std::sin(i * 4.7f);
+            const float t = float(i) / twigs, a = (i%2?0.f:pi)+.39f*std::sin(i*2.6f)+(juniper?.36f*std::cos(i*4.f):0);
             const V3 dir{std::cos(a), 0, std::sin(a)}, side{-dir.z, 0, dir.x};
             const V3 start{.018f * std::sin(8 * t), -.43f + .77f * t + .021f * std::sin(i * 5.6f), 0};
-            const V3 twig = dir * ((pine ? .23f : .28f) * (1 - .51f * t) * (1 + .16f * std::sin(i * 3.8f))) + up * .077f;
+            const V3 twig = dir * (.325f * (1 - .54f * t) * (1 + .15f * std::sin(i * 3.8f))) + up * (.087f+.037f*std::cos(i*3.f));
             stalk(start, start + twig, .004f);
-            for (int j = 0; j < (mid ? 4 : 6); ++j) {
-                const V3 from = start + twig * ((pine ? .42f : .16f) + (pine ? .090f : .131f) * j + .045f * std::sin(i * 7.f + j * 5.f));
-                if (pine) {
-                    // The two needles in a fascicle start at the same point.
-                    for (float pair : {-1.f, 1.f}) {
-                        const float curl = .014f + .004f * (j % 3);
-                        V3 tip = from + dir * (.086f + .023f * std::sin(5 * j + i)) +
-                                 side * (.032f * pair + .068f * std::sin(i * 3.1f + j * 2.15f)) +
-                                 up * (.093f + .041f * std::cos(2 * j + i) + .016f * pair);
-                        needle(from, tip, unit(cross(tip - from, up)), mid ? .0052f : .0038f, curl * pair);
-                    }
-                } else {
+            for (int j = 0; j < (mid ? 8 : 12); ++j) {
+                const V3 from = start + twig * (.18f + .70f * j/(mid?8.f:12.f) + .03f * std::sin(i * 7.f + j * 5.f));
                     for (int leaf = 0; leaf < (juniper ? 3 : 2); ++leaf) {
                         const float roll = (leaf * (juniper ? 2.0944f : 3.1416f)) + j * .63f + i * .45f;
                         const V3 spread = side * std::cos(roll) + up * std::sin(roll);
                         const V3 to = from + dir * .043f + spread * ((juniper ? .058f : .071f) * (1 + .24f * std::sin(i * 5.f + j)));
-                        needle(from, to, unit(cross(to - from, dir)), juniper ? .006f : .0048f, .009f);
+                        needle(from, to, unit(cross(to - from, dir)), juniper ? .0083f : .0061f, .007f);
                     }
-                }
             }
         }
         return;
@@ -205,9 +217,13 @@ void buildVegetationMesh(MeshType mesh, Triangle triangle) {
 
     if (mesh == MeshType::FernFrond || mesh == MeshType::FernFrondFar) {
         const bool far = mesh == MeshType::FernFrondFar;
+        if(far){
+            ribbon({0,-.49f,0},{-.04f,.49f,0},{0,0,1},.49f,-.201f,4,false);
+            return;
+        }
         auto rachis = [](float t) { return V3{.23f * std::sin(pi * t) - .04f * t, t - .5f,
                                               .026f * std::sin(pi * t * 2)}; };
-        const int pinnae = far ? 10 : 18;
+        const int pinnae = 18;
         for (int i = 0; i < pinnae; ++i) {
             const float t = float(i) / pinnae;
             stalk(rachis(t), rachis(t + 1.f / pinnae), .013f * (1 - .86f * t));
@@ -219,17 +235,17 @@ void buildVegetationMesh(MeshType mesh, Triangle triangle) {
                 const V3 tip = from + V3{-.056f + .019f * std::sin(i * 2.f),
                     std::min(.476f - from.y, .033f + .055f * attach), side * breadth};
                 ribbon(from, tip, unit(cross(tip - from, {1, 0, 0})),
-                       std::min(.048f, .29f * breadth), .035f * (1 - attach), far ? 1 : 3, false);
+                       std::min(.048f, .29f * breadth), .035f * (1 - attach), 3, false);
             }
         }
         return;
     }
 
     const bool bambooLeaf = mesh == MeshType::BambooLeaves || mesh == MeshType::BambooLeavesFar;
-    if (mesh == MeshType::BirchLeaves || mesh == MeshType::BirchLeavesFar || bambooLeaf) {
-        const bool far = mesh == MeshType::BirchLeavesFar || mesh == MeshType::BambooLeavesFar;
+    if (mesh == MeshType::BirchLeaves || bambooLeaf) {
+        const bool far = mesh == MeshType::BambooLeavesFar;
         stalk({0, -.5f, 0}, {.020f, .46f, 0}, .013f);
-        const int count = far ? 6 : 11;
+        const int count = bambooLeaf ? (far ? 6 : 11) : (far ? 13 : 24);
         for (int i = 0; i < count; ++i) {
             const float t = float(i) / count, a = i * 2.39996f;
             const V3 dir{std::cos(a), 0, std::sin(a)}, crosswise{-dir.z, 0, dir.x};

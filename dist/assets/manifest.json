@@ -1,6 +1,6 @@
 {
   "desktop_base": "0.003.0.17",
-  "viewer_version": "0.000.00.011",
+  "viewer_version": "0.000.00.012",
   "texture_size": 512,
   "material_sources": [
     {
@@ -37,7 +37,7 @@
       "height_source_mode": "I;16"
     }
   ],
-  "desktop_shader_sha256": "15530d0010ae3290b3ab3d588ec3dbb94b8b7a55dad58fe44b987cd8438e3039",
+  "desktop_shader_sha256": "7436fcefcd53f93a3059566e60aa47b22ec1f79bf86d5cdf251383235b9bf31a",
   "limits": [
     "Escenas de referencia y cinco biomas compactos por semilla.",
     "Texturas 512²; mapas PC 1024².",
@@ -45,5 +45,17 @@
     "Reflejos SSR experimentales, desactivados inicialmente.",
     "Sombras de contacto heredadas de PC: artefactos pendientes.",
     "Solo cámara exterior; agua sin simulación de fluidos."
+  ],
+  "baked_material_sources": [
+    {
+      "asset": "pine_bark",
+      "source": "https://polyhaven.com/a/pine_bark",
+      "license": "CC0-1.0",
+      "author": "Dimitrios Savva",
+      "layers": [
+        5,
+        6
+      ]
+    }
   ]
 }

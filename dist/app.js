@@ -1,7 +1,7 @@
 import {generateWorld,validateWorld,celestialFrame,starAtlas,cloudTransmission} from './celestial.js';
 import {biomes,createBiome} from './biomes.js';
 const $=id=>document.getElementById(id), canvas=$('view');
-const VERSION='0.000.00.011';
+const VERSION='0.000.00.012';
 const params=new URLSearchParams(location.search);
 const state={ready:false,scene:'shore',biome:'forest',quality:window.PleiadeAndroid?'eco':'balanced',materials:true,shadows:true,shadowSoft:true,water:true,ssr:false,contact:false,animation:true,waveStrength:.35,time:0,frames:0,errors:[],fps:0,hdr:false,paused:false};
 window.pleiade={state};
@@ -57,20 +57,24 @@ async function loadMesh(item){
 }
 function regenerateBiome(){
  activeBiome=createBiome(state.biome,world.seed,sceneData);
- const {terrain}=activeBiome,previous=meshes.get('biome-ground');
- if(previous){
-  gl.deleteVertexArray(previous.vao);
-  for(const buffer of [previous.vertex,previous.index,previous.instances])gl.deleteBuffer(buffer);
+ for(const tile of activeBiome.terrain.pieces){
+  const previous=meshes.get(tile.id);
+  if(previous){
+   gl.deleteVertexArray(previous.vao);
+   for(const buffer of [previous.vertex,previous.index,previous.instances])gl.deleteBuffer(buffer);
+  }
+  makeMesh({id:tile.id,indices:tile.indices.length},tile.vertices,tile.indices,32);
  }
- makeMesh({id:'biome-ground',indices:terrain.indices.length},terrain.vertices,terrain.indices,32);
  layoutRevision++;drawAnchor=null;shadowDirty=true;
 }
-function uploadSceneMeshes({eye,forward}){
+function uploadSceneMeshes({eye,forward,right,up}){
  const focal=canvas.height/(2*Math.tan(opticalFov*Math.PI/360));
- if(drawAnchor&&math.dot(forward,drawAnchor.forward)>.994&&Math.hypot(...math.sub(eye,drawAnchor.eye))<.55&&focal===drawAnchor.focal)return;
- drawAnchor={eye,forward,focal};
+ const tall=canvas.height/(2*focal),wide=canvas.width/(2*focal);
+ if(drawAnchor&&math.dot(forward,drawAnchor.forward)>.994&&Math.hypot(...math.sub(eye,drawAnchor.eye))<.55&&focal===drawAnchor.focal&&wide===drawAnchor.wide)return;
+ drawAnchor={eye,forward,focal,wide};
  const objects=state.scene==='biomes'?activeBiome.objects:sceneData[state.scene==='building'?'building':'shore'];
  const byMesh=new Map(),plan=[],near=[];
+ const isBiome=state.scene==='biomes';
  let remaining=limits[state.quality].near, needles=limits[state.quality].needles;
  for(const [objectIndex,{mesh:id,instance,visible,detail,section}] of objects.entries()){
   if(visible===false)continue;
@@ -80,13 +84,19 @@ function uploadSceneMeshes({eye,forward}){
   const woody=section>=1&&section<=6;
   const offset=[instance[12]-eye[0],instance[13]-eye[1],instance[14]-eye[2]];
   const distance=Math.max(.25,Math.hypot(...offset)),projected=focal/distance;
+  const depth=math.dot(offset,forward);
+  if(isBiome&&typeof id==='number'&&distance>31){
+   const margin=12+Math.max(breadth,height);
+   if(depth < -margin || Math.abs(math.dot(offset,right))>Math.max(0,depth)*wide+margin ||
+      Math.abs(math.dot(offset,up))>Math.max(0,depth)*tall+margin)continue;
+  }
   const pixels=(woody?breadth:Math.max(breadth,height))*projected;
   if(detail&&pixels<(woody&&state.scene==='biomes'?1.4:woody?.6:3.5))continue;
   const item={id:mesh.far??id,instance,material:mesh.farMaterial,objectIndex};
   plan.push(item);
   const detailThreshold=woody?(state.quality==='detail'?6:12):(state.quality==='detail'?48:85);
   if(mesh.far!==undefined&&(pixels>detailThreshold||(mesh.mid!==undefined&&pixels>30))){
-   const facing=Math.max(0,math.dot(offset,forward)/distance);
+   const facing=Math.max(0,depth/distance);
    near.push({item,id,mesh,pixels,detailThreshold,priority:pixels*(.17+.83*facing*facing)});
   }
  }
@@ -102,7 +112,7 @@ function uploadSceneMeshes({eye,forward}){
   }
  }
  let signature=0;
- for(const {id,objectIndex} of plan)signature=Math.imul(signature^(id==='biome-ground'?71:id)^Math.imul(objectIndex,113),16777619);
+ for(const {id,objectIndex} of plan)signature=Math.imul(signature^(typeof id==='number'?id:71+objectIndex)^Math.imul(objectIndex,113),16777619);
  if(drawnRevision===layoutRevision&&drawnSignature===signature)return;
  drawnRevision=layoutRevision;drawnSignature=signature;
  for(const {id,instance,material} of plan){
@@ -171,7 +181,7 @@ function updateCloudCache(c){
 }
 function render(){if(!state.ready||gl.isContextLost())return;resize();skyFrame=celestialFrame(world);const cloudLight=cloudTransmission(world,skyFrame.light,cloudAmount);skyFrame.lightColor=skyFrame.lightColor.map(x=>x*cloudLight);skyFrame.ambient*=.5+.5*cloudLight;const range=state.scene==='biomes'?64:state.scene==='building'?12:32;lightVP=math.mul(math.ortho(-range,range,-range,range,.1,200),math.look(math.scale(skyFrame.light,100),[0,0,0]));const c=cameraFrame();uploadSceneMeshes(c);updateCloudCache(c);gl.enable(gl.DEPTH_TEST);gl.enable(gl.CULL_FACE);gl.disable(gl.BLEND);
  if(state.shadows&&shadowDirty){gl.bindFramebuffer(gl.FRAMEBUFFER,shadowFbo);gl.viewport(0,0,shadowSize,shadowSize);gl.clear(gl.DEPTH_BUFFER_BIT);let p=programs.shadow;gl.useProgram(p.id);um(p,'uVP',lightVP);uf(p,'uTime',state.time);gl.enable(gl.POLYGON_OFFSET_FILL);gl.polygonOffset(2,4);drawGroups();gl.disable(gl.POLYGON_OFFSET_FILL);shadowDirty=false;}
- gl.bindFramebuffer(gl.FRAMEBUFFER,sceneFbo);gl.viewport(0,0,canvas.width,canvas.height);gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);let p=programs.material;gl.useProgram(p.id);skyUniforms(p);um(p,'uVP',c.vp);um(p,'uView',c.v);um(p,'uLightVP',lightVP);uv(p,'uEye',c.eye);uf(p,'uTime',state.time);uf(p,'uWetTime',state.time);uf(p,'uWaveStrength',state.waveStrength);uf(p,'uFogDensity',.0025);ui(p,'uShadows',state.shadows);ui(p,'uShadowSoft',state.shadowSoft);ui(p,'uNatural',1);ui(p,'uMaterials',state.materials);ui(p,'uWet',state.water);ui(p,'uVisibilityEnabled',0);bind(shadowTexture,0);bind(visibilityTexture,11);ui(p,'uShadow',0);materialTextures.forEach((t,i)=>bind(t,5+i));drawGroups();
+ gl.bindFramebuffer(gl.FRAMEBUFFER,sceneFbo);gl.viewport(0,0,canvas.width,canvas.height);gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);let p=programs.material;gl.useProgram(p.id);skyUniforms(p);um(p,'uVP',c.vp);um(p,'uView',c.v);um(p,'uLightVP',lightVP);uv(p,'uEye',c.eye);uf(p,'uTime',state.time);uf(p,'uWetTime',state.time);uf(p,'uWaveStrength',state.waveStrength);uf(p,'uFogDensity',.0025);uf(p,'uTerrainSeed',world.seed%65536);ui(p,'uShadows',state.shadows);ui(p,'uShadowSoft',state.shadowSoft);ui(p,'uNatural',1);ui(p,'uMaterials',state.materials);ui(p,'uWet',state.water);ui(p,'uVisibilityEnabled',0);bind(shadowTexture,0);bind(visibilityTexture,11);ui(p,'uShadow',0);materialTextures.forEach((t,i)=>bind(t,5+i));drawGroups();
  gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.disable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);p=programs.composite;gl.useProgram(p.id);skyUniforms(p);bind(cloudTexture||visibilityTexture,13);ui(p,'uCloudMap',13);ui(p,'uCloudCached',cloudReuse&&cloudAmount>0);for(let i=0;i<4;i++)bind(targets[[0,1,3,2][i]],i);ui(p,'uContact',state.hdr&&state.contact);ui(p,'uWater',state.water);ui(p,'uWaterSSR',state.ssr&&state.water);uf(p,'uWaterTime',state.time);uf(p,'uWaveStrength',state.waveStrength);uf(p,'uExposure',1);uf(p,'uTurbidity',turbidity);ui(p,'uAA',1);uv(p,'uCameraEye',c.eye);uv(p,'uCameraRight',c.right);uv(p,'uCameraUp',c.up);uv(p,'uCameraForward',c.forward);gl.uniform2f(loc(p,'uProjectionScale'),c.p[0],c.p[5]);gl.bindVertexArray(emptyVAO);gl.drawArrays(gl.TRIANGLES,0,3);state.frames++;
  if(state.frames<4||params.has('test')){let error=gl.getError();if(error!==gl.NO_ERROR)throw Error('Error gráfico WebGL '+error);}
  if(capturePending){capturePending=false;canvas.toBlob(b=>{if(b)download(b,'Pleiade-tablet-'+state.scene+'.png');else toast('El navegador no ha podido guardar la imagen.');});}
@@ -190,7 +200,7 @@ function download(blob,name){
  setTimeout(()=>URL.revokeObjectURL(url),30000);
  toast('Descarga solicitada: '+name);
 }
-function report(){return {viewer:VERSION,desktopBase:'0.003.0.17',browser:navigator.userAgent,screen:{width:innerWidth,height:innerHeight,dpr:devicePixelRatio},render:{width:canvas.width,height:canvas.height,shadow:shadowSize,shadowDepthMiB:shadowSize*shadowSize*4/1048576,trianglesPerPass:submittedTriangles,needleBundles,shadowFilter:state.shadowSoft?'continuous-tent-9':'box-9',hdr:state.hdr},settings:{...state},biome:state.scene==='biomes'?{seed:world.seed,plants:activeBiome.plants,rocks:activeBiome.rocks,vines:activeBiome.vines}:null,celestial:{seed:world.seed,elapsedDays:world.elapsedDays,daySeconds:world.daySeconds,running:skyRunning,cloudAmount,flightAltitude,opticalFov,turbidity},camera,capabilities:{webgl:gl?gl.getParameter(gl.VERSION):null,maxTextureSize:gl?gl.getParameter(gl.MAX_TEXTURE_SIZE):null},cloudCache:{enabled:cloudReuse,width:cloudWidth,height:cloudWidth/2,updates:cloudBuilds,estimatedMiB:cloudWidth*cloudWidth/2*(state.hdr?8:4)/1048576},memoryPolicy:{budgetMiB:4096,kind:'design ceiling, not measured browser allocation'},note:'FPS de presentación del navegador; no es tiempo GPU ni un benchmark de la RTX.'};}
+function report(){return {viewer:VERSION,desktopBase:'0.003.0.17',browser:navigator.userAgent,screen:{width:innerWidth,height:innerHeight,dpr:devicePixelRatio},render:{width:canvas.width,height:canvas.height,shadow:shadowSize,shadowDepthMiB:shadowSize*shadowSize*4/1048576,trianglesPerPass:submittedTriangles,needleBundles,shadowFilter:state.shadowSoft?'continuous-tent-9':'box-9',hdr:state.hdr},settings:{...state},biome:state.scene==='biomes'?{seed:world.seed,plants:activeBiome.plants,rocks:activeBiome.rocks,trees:activeBiome.trees,understory:activeBiome.understory,tiles:activeBiome.terrain.pieces.length,vines:activeBiome.vines}:null,celestial:{seed:world.seed,elapsedDays:world.elapsedDays,daySeconds:world.daySeconds,running:skyRunning,cloudAmount,flightAltitude,opticalFov,turbidity},camera,capabilities:{webgl:gl?gl.getParameter(gl.VERSION):null,maxTextureSize:gl?gl.getParameter(gl.MAX_TEXTURE_SIZE):null},cloudCache:{enabled:cloudReuse,width:cloudWidth,height:cloudWidth/2,updates:cloudBuilds,estimatedMiB:cloudWidth*cloudWidth/2*(state.hdr?8:4)/1048576},memoryPolicy:{budgetMiB:4096,kind:'design ceiling, not measured browser allocation'},note:'FPS de presentación del navegador; no es tiempo GPU ni un benchmark de la RTX.'};}
 function setupUI(){
  $('biome').onchange=()=>useBiome($('biome').value);
  syncSkyUI();

@@ -52,7 +52,8 @@ enum class MeshType {
 constexpr int meshCount = static_cast<int>(MeshType::Count);
 enum class SurfaceLayer {
     PineNeedle, ConiferNeedle, FernPinna, Broadleaf, Petal, Bark, PineBark, Timber,
-    Masonry, Sand, Snow, Stone, Soil, Bamboo, PineSpray, ConiferSpray, BirchBark, PalmStem, Count
+    Masonry, Sand, Snow, Stone, Soil, Bamboo, PineSpray, ConiferSpray, BirchBark, PalmStem,
+    BroadleafSpray, FernSpray, Count
 };
 inline constexpr float materialPattern(SurfaceLayer layer) { return 20.f + float(layer); }
 inline constexpr float terrainPattern(SurfaceLayer layer) { return 40.f + float(layer); }

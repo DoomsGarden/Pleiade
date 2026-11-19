@@ -6,11 +6,13 @@ precision highp sampler2DArray;
 in vec3 rasterLocal;in vec3 rasterPosition;in vec3 worldNormal;in vec3 color;flat in vec3 surface;
 in vec2 rasterUV;
 flat in vec3 objectDimensions;
+flat in vec3 objectCenter;
 flat in vec2 coverage;
 flat in float atlasView;
 vec3 worldPosition,localPosition;
+flat in mat3 objectNormals;
 #ifdef DEPTH_IMPOSTOR
-flat in mat4 objectModel;flat in mat3 objectNormals;
+flat in mat4 objectModel;
 uniform sampler2D uCanopy;uniform mat4 uVP;
 #endif
 layout(location=0) out vec4 outDirect;
@@ -26,6 +28,7 @@ uniform int uMaterials,uWet;uniform float uWetTime;uniform float uWaveStrength;
 uniform sampler2D uGroundColor,uGroundNormal,uBarkColor,uBarkNormal,uRockColor,uRockNormal;
 uniform sampler2DArray uSurfaceColor,uSurfaceNormal;
 uniform int uSurfaceMaps;
+uniform float uTerrainSeed;
 mat3 surfaceFrame(vec3 n,vec2 uv){
  vec3 dx=dFdx(worldPosition),dy=dFdy(worldPosition),p1=cross(dy,n),p2=cross(n,dx);
  vec2 tx=dFdx(uv),ty=dFdy(uv);
@@ -89,6 +92,33 @@ float filteredNoise(vec2 p){
  float footprint=max(length(dFdx(p)),length(dFdy(p)));
  return mix(noise2(p),.5,smoothstep(.35,1.2,footprint));
 }
+vec2 terrainUV(vec2 position,float meters){
+ vec2 shift=vec2(uTerrainSeed*.0017,uTerrainSeed*.0033);
+ vec2 tile=position/9.0, fracTile=fract(tile), edge=min(fracTile,1.0-fracTile);
+ float variant=floor(hash(vec3(floor(tile),uTerrainSeed*.013+.12))*9.0);
+ vec2 phase=(vec2(mod(variant,3.0),floor(variant/3.0))-1.0)*.42;
+ vec2 warp=vec2(filteredNoise(position*.145+shift),filteredNoise(position*.17+shift+vec2(9.4,3.7)))-.5;
+ float interior=smoothstep(.07,.33,min(edge.x,edge.y));
+ return position/meters + warp*.65 + phase*interior;
+}
+PBRSurface timberSurface(vec3 n){
+ vec3 axisX=normalize(objectNormals[0]),axisY=normalize(objectNormals[1]),axisZ=normalize(objectNormals[2]);
+ vec3 p=rasterLocal*objectDimensions;
+ vec3 an=abs(vec3(dot(n,axisX),dot(n,axisY),dot(n,axisZ)));
+ if(objectDimensions.y>max(objectDimensions.x,objectDimensions.z)){p=p.yxz;an=an.yxz;}
+ else if(objectDimensions.z>objectDimensions.x){p=p.zxy;an=an.zxy;}
+ float seed=hash(objectCenter*.187);
+ vec2 shift=vec2(seed,hash(objectCenter*.297+31.0));
+ vec3 w=pow(an,vec3(9.0));w/=max(dot(w,vec3(1.0)),.001);
+ PBRSurface endGrain=bakedSurface((p.yz/.47).yx+shift,7.0,n);
+ PBRSurface faceA=bakedSurface(p.xz/vec2(1.46,.55)+shift,7.0,n);
+ PBRSurface faceB=bakedSurface(p.xy/vec2(1.46,.55)+shift,7.0,n);
+ vec2 rings=p.yz+vec2(.17,.095);
+ float endTone=.85+.15*filteredNoise(vec2(length(rings)*52.0,atan(rings.y,rings.x)*2.8));
+ float exposure=mix(.81,1.08,seed);
+ return PBRSurface(exposure*(w.x*endGrain.base*endTone+w.y*faceA.base+w.z*faceB.base),
+   normalize(w.x*endGrain.normal+w.y*faceA.normal+w.z*faceB.normal), w.x*endGrain.rough+w.y*faceA.rough+w.z*faceB.rough);
+}
 vec3 bumpNormal(vec3 n,float height){
  vec3 dx=dFdx(worldPosition),dy=dFdy(worldPosition);
  vec3 r1=cross(dy,n),r2=cross(n,dx);float det=dot(dx,r1);
@@ -125,7 +155,7 @@ float visibility(vec3 n){
 vec3 sky(vec3 d){return mix(vec3(.12,.15,.18),vec3(.28,.42,.61),clamp(d.y*.5+.5,0.0,1.0));}
 PBRSurface biomeSurface(vec3 n,float layer){
  float patches=filteredNoise(worldPosition.xz*.16);
- vec2 ground=worldPosition.xz/(layer<10.5?2.9:2.1);
+ vec2 ground=terrainUV(worldPosition.xz,layer<10.5?2.9:2.1);
  if(layer<9.5){
   vec2 xz=worldPosition.xz;
   ground+=vec2(filteredNoise(xz*.14+vec2(2.1,9.5))-.5,patches-.5)*.54;
@@ -137,7 +167,8 @@ PBRSurface biomeSurface(vec3 n,float layer){
  PBRSurface surfaceMap=bakedSurface(ground,layer,n);
  if(layer<10.5){
   float snow=smoothstep(-5.0,3.0,worldPosition.y+(patches-.43)*4.0)*smoothstep(.48,.88,n.y+(patches-.5)*.16);
-  return blendSurface(bakedSurface(ground,11.0,n),surfaceMap,snow);
+  vec2 rockUV=terrainUV(worldPosition.xz+worldPosition.y*vec2(.52,.67),2.3);
+  return blendSurface(bakedSurface(rockUV,11.0,n),surfaceMap,snow);
  }
  return blendSurface(surfaceMap,bakedSurface(ground*.68,11.0,n),
    smoothstep(.52,.72,patches)*.48+(1.0-smoothstep(.54,.81,n.y))*.46);
@@ -171,7 +202,7 @@ void main(){
  vec3 n=normalize(normal),v=normalize(uEye-worldPosition),l=lightDirection,h=normalize(v+l);
  vec3 base=color;float rough=clamp(surf.x,.06,1.0),metal=surf.y;
  float layer=surf.z-20.0;
- bool foliage=(layer>=-.5&&layer<3.5)||(layer>=13.5&&layer<15.5);
+ bool foliage=(layer>=-.5&&layer<3.5)||(layer>=13.5&&layer<15.5)||(layer>=17.5&&layer<19.5);
  bool scanned=uMaterials!=0&&((surf.z>3.5&&surf.z<4.5)||(surf.z>4.5&&surf.z<5.5&&atlasView<-.5)||(surf.z>8.5&&surf.z<9.5));
  if(surf.z>=19.5){
   if(foliage&&dot(n,v)<0.0)n=-n;
@@ -179,6 +210,8 @@ void main(){
    PBRSurface material;
    if(surf.z>=39.5){
     material=biomeSurface(n,surf.z-40.0);
+   } else if(abs(layer-7.0)<.5){
+    material=timberSurface(n);
    } else if(layer>=6.5&&layer<12.5){
     material=bakedWorldSurface(n,layer,layer<7.5?1.8:2.1);
    } else {
@@ -194,7 +227,7 @@ void main(){
      float lower=1.0-smoothstep(.065,.23,rasterLocal.y+.5+(filteredNoise(worldPosition.xz*2.8+worldPosition.y*vec2(.35,.55)) - .5)*.13);
      material=blendSurface(material,bakedSurface(texUV,5.0,n),lower*.93);
     }
-    if((layer>=1.5&&layer<3.5)||(layer>=13.5&&layer<15.5)){
+    if((layer>=1.5&&layer<3.5)||(layer>=13.5&&layer<15.5)||(layer>=17.5&&layer<19.5)){
      if(texture(uSurfaceColor,vec3(texUV,layer)).a<(layer>=13.5?.28:.42))discard;
     }
    }
@@ -204,7 +237,7 @@ void main(){
   metal=0.0;
  }else if(scanned){
   PBRSurface material;
-  if(surf.z<4.5){float fade=1.0-smoothstep(6.0,14.0,length(uEye-worldPosition));material=readPBR(uGroundColor,uGroundNormal,worldPosition.xz/3.2,n,v,.035/3.2*fade);}
+  if(surf.z<4.5){float fade=1.0-smoothstep(6.0,14.0,length(uEye-worldPosition));material=readPBR(uGroundColor,uGroundNormal,terrainUV(worldPosition.xz,3.2),n,v,.026/3.2*fade);material.base*=.88+.20*filteredNoise(worldPosition.xz*.32);}
   else if(surf.z<5.5)material=triplanarPBR(uBarkColor,uBarkNormal,n,v,1.0);
   else material=triplanarPBR(uRockColor,uRockNormal,n,v,2.4);
   base=material.base;
@@ -301,6 +334,18 @@ void main(){
    direct+=base*uLightColor*vec3(.08,.10,.06)*pow(max(dot(-n,l),0.0),2.0)*visibility(n);
  // Analytic environment approximation: no captured reflections or global illumination yet.
  vec3 env=sky(reflect(-v,n));vec3 ambient=(1.0-metal)*base*mix(vec3(.07,.085,.09),vec3(.20,.24,.29),n.y*.5+.5)+env*f0*(1.0-.6*rough);
+ if(abs(surf.z-18.0)<.1){
+   vec2 panel=rasterLocal.xy;
+   vec3 pane=normalize(n+vec3(.019*sin(panel.x*7.0+panel.y*3.0),.026*sin(panel.y*5.0-panel.x*2.0),0.0));
+   vec3 reflectRay=reflect(-v,pane);
+   float mirror=.042+.958*pow(1.0-max(0.0,dot(pane,v)),5.0);
+   float horizon=smoothstep(-.095,.035,reflectRay.y+.013*sin(reflectRay.x*20.0));
+   vec3 glazed=mix(vec3(.074,.082,.067)*mix(.12,1.0,uDaylight),atmosphereFog(reflectRay)*mix(.82,2.05,uDaylight),horizon);
+   float glint=pow(max(dot(reflectRay,l),0.0),140.0);
+   vec3 recess=base*(.27+.35*smoothstep(-.42,.29,panel.y));
+   direct=mix(recess,glazed,mirror)+glint*mirror*vec3(2.0,1.8,1.48)*visibility(n);
+   ambient=vec3(0.0);rough=.085;
+ }
  ambient*=uSkyAmbient;
  float fog=1.0-exp(-length(uEye-worldPosition)*uFogDensity);
  direct=mix(direct,atmosphereFog(normalize(worldPosition-uEye)),fog);ambient*=1.0-fog;

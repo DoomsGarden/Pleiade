@@ -2,7 +2,7 @@
 #include "vegetation_meshes.hpp"
 
 namespace pl {
-enum class TreeSpecies { Spruce, ScotsPine, Birch };
+enum class TreeSpecies { Spruce, ScotsPine, Birch, TropicalBroadleaf };
 enum class GroundPlant { Juniper, Fern, Bellflower };
 
 class VegetationRandom {
@@ -111,15 +111,16 @@ void appendTree(std::vector<Object> &objects, TreeSpecies species, V3 base, floa
                 uint32_t seed, HeightAt heightAt) {
     VegetationRandom random(seed);
     const bool spruce = species == TreeSpecies::Spruce, pine = species == TreeSpecies::ScotsPine;
+    const bool birch = species == TreeSpecies::Birch, tropical = species == TreeSpecies::TropicalBroadleaf;
     const float diameter = height * random.range(spruce ? .062f : .071f, spruce ? .078f : .094f);
     const float angle = random.range(0, 2 * pi);
     const float trunkWidth = diameter * random.range(1.19f, 1.33f);
     const V3 trunkX = horizontal(angle), trunkZ = cross(trunkX, {0, 1, 0});
-    const V3 bark = pine ? V3{.93f, .88f, .84f} : spruce ? V3{.88f, .95f, .96f} : V3{.97f, .98f, .94f};
+    const V3 bark = pine ? V3{.98f, .93f, .89f} : spruce ? V3{.87f, .91f, .88f} : tropical ? V3{.77f, .91f, .75f} : V3{.97f, .98f, .94f};
     const V3 upperBark = pine ? V3{1.40f, 1.04f, .77f} : bark;
-    const V3 leaves = spruce ? V3{.82f, .92f, .83f} : pine ? V3{.77f, .90f, .90f} : V3{.97f, .96f, .82f};
+    const V3 leaves = spruce ? V3{.79f, .92f, .80f} : pine ? V3{.81f, .98f, .88f} : tropical ? V3{.68f, .95f, .68f} : V3{.96f, 1.03f, .83f};
     const auto canopy = spruce ? MeshType::SpruceNeedles : pine ? MeshType::PineNeedles : MeshType::BirchLeaves;
-    const auto barkLayer = canopy == MeshType::BirchLeaves ? SurfaceLayer::BirchBark : SurfaceLayer::Bark;
+    const auto barkLayer = birch ? SurfaceLayer::BirchBark : SurfaceLayer::Bark;
     const float leafMaterial = foliageMaterialForMesh(canopy, materialPattern(SurfaceLayer::Broadleaf));
     auto trunk = [&](float fraction) {
         const V3 center = treeTrunkCenter(std::clamp((fraction + .04f) / 1.04f, 0.f, 1.f));
@@ -131,7 +132,7 @@ void appendTree(std::vector<Object> &objects, TreeSpecies species, V3 base, floa
         base + V3{0, height * .48f, 0}, {0, 1, 0}, {trunkWidth, height * 1.04f, trunkWidth}, bark,
         materialPattern(barkLayer), VegetationSection::Collar, noVegetationParent, 0, angle);
     // Pine's upper bark is blended on the continuous mesh. Birch keeps its pale outer bark.
-    objects[collar].gpu.surface.w = pine ? -3.f : spruce ? 0.f : -4.f;
+    objects[collar].gpu.surface.w = pine ? -3.f : birch ? -4.f : 0.f;
     constexpr std::array levels{.12f, .38f, .63f, .83f, 1.f};
     std::array<size_t, levels.size() - 1> trunkSections{};
     size_t trunkParent = collar;
@@ -144,20 +145,24 @@ void appendTree(std::vector<Object> &objects, TreeSpecies species, V3 base, floa
     }
     appendTreeRoots(objects, base, diameter, spruce, angle, bark, collar, random, heightAt);
 
-    const int tiers = spruce ? 7 : pine ? 5 : 5;
-    const int limbs = spruce ? 4 : pine ? 4 : 5;
+    const int tiers = spruce ? 8 : pine ? 6 : 7;
+    const float crownBias = random.range(-.07f, .065f);
+    const float crownWidth = random.range(.90f, 1.18f);
     for (int tier = 0; tier < tiers; ++tier) {
-        float level = spruce ? .26f + .103f * tier : pine ? .49f + .096f * tier : .35f + .126f * tier;
-        const float span = height * (spruce ? .41f * (1 - level) : pine ? .30f - .017f * tier : .38f - .047f * tier);
+        const float t = float(tier) / (tiers - 1);
+        const float level = (spruce ? .26f + .66f*t : pine ? .44f + .46f*t : .31f + .62f*t) + crownBias;
+        const float span = height * crownWidth * (spruce ? .42f*(1.025f-level) : pine ? .20f+.12f*std::sin(pi*t) :
+                                                   (.19f+(tropical?.25f:.13f)*std::sin(pi*t))*(1-.53f*t));
+        const int limbs = random.range(0, 1) < .47f ? 3 : 4;
         for (int limb = 0; limb < limbs; ++limb) {
-            float heading = angle + tier * 2.39996f + limb * (2 * pi / limbs) + random.range(-.2f, .2f);
-            float reach = span * random.range(.8f, 1.14f);
-            float attach = level + random.range(-.027f, .027f);
+            float heading = angle + tier * 2.39996f + limb * (2 * pi / limbs) + random.range(-.47f, .47f);
+            float reach = span * random.range(.63f, 1.30f);
+            float attach = std::clamp(level + random.range(-.052f, .050f), .14f, .963f);
             auto upper = std::upper_bound(levels.begin(), levels.end(), attach);
             size_t section = size_t(upper - levels.begin() - 1);
             V3 from = trunk(attach);
             V3 out = horizontal(heading) * reach, side = horizontal(heading + pi * .5f) * reach;
-            const float rise = spruce ? .33f * level - .20f : .21f;
+            const float rise = spruce ? .31f * level - .27f : pine ? .11f + .17f * random.range(0,1) : .18f;
             V3 elbow = from + out * .53f + V3{0, reach * rise, 0};
             const V3 branchBark = bark * (1 - level) + upperBark * level;
             size_t primary = appendWood(objects, from, elbow, taper(level) * .25f, branchBark,
@@ -172,26 +177,27 @@ void appendTree(std::vector<Object> &objects, TreeSpecies species, V3 base, floa
                             V3{0, reach * (spruce ? .085f : .23f), 0};
                 size_t shoot = appendWood(objects, twig, twig + growth, taper(level) * .083f,
                                           branchBark, VegetationSection::Shoot, secondary, true, true, barkLayer);
-                const float breadth = reach * (canopy == MeshType::BirchLeaves ? .50f : .85f);
+                const float breadth = reach * (birch ? .72f : tropical ? .81f : .91f);
                 appendVegetationPart(objects, canopy, twig + growth * .52f, growth,
-                                     {breadth, length(growth) * 1.41f, breadth},
+                                     {breadth, length(growth) * 1.46f, breadth},
                                      leaves * random.range(.84f, 1.12f), leafMaterial,
                                      VegetationSection::Foliage, shoot, 0, random.range(-pi, pi));
-                if (spruce || (pine && sign > 0)) {
-                    const V3 older = twig - fork;
-                    appendVegetationPart(objects, canopy, fork + older * .68f, older,
-                                         {reach * .56f, length(older) * 1.07f, reach * .56f},
-                                         leaves * .85f, leafMaterial, VegetationSection::Foliage, secondary,
-                                         0, heading + sign * .5f);
-                }
+                const V3 lateral = (twig - fork) * .82f + side * sign * .21f + V3{0, reach*.095f,0};
+                const V3 split = fork + (twig - fork)*.62f;
+                const auto child = appendWood(objects, split, split+lateral, taper(level)*.060f, branchBark,
+                                              VegetationSection::Shoot, secondary, true, true, barkLayer);
+                appendVegetationPart(objects, canopy, split + lateral*.66f, lateral,
+                                     {breadth*.73f, length(lateral)*1.34f, breadth*.80f},
+                                     leaves * random.range(.83f, 1.08f), leafMaterial, VegetationSection::Foliage, child,
+                                     0, random.range(-1.4f, 1.4f));
             }
         }
     }
-    V3 leader = trunk(.90f), tip = trunk(1.02f);
+    V3 leader = trunk(.83f), tip = trunk(1.006f);
     size_t shoot = appendWood(objects, leader, tip, taper(.95f) * .53f, upperBark,
                               VegetationSection::Shoot, trunkSections.back(), true, true, barkLayer);
     appendVegetationPart(objects, canopy, (leader + tip) * .5f, tip - leader,
-                         {height * .11f, height * .19f, height * .11f}, leaves, leafMaterial,
+                         {height * .175f, height * .205f, height * .175f}, leaves, leafMaterial,
                          VegetationSection::Foliage, shoot);
 }
 
@@ -201,34 +207,35 @@ void appendGroundPlant(std::vector<Object> &objects, GroundPlant species, V3 bas
     VegetationRandom random(seed);
     const float angle = random.range(0, 2 * pi);
     const V3 wood{.80f, .70f, .57f};
-    const float collarWidth = size * (species == GroundPlant::Juniper ? .095f : .045f);
+    const float collarWidth = size * (species == GroundPlant::Juniper ? .058f : .045f);
     const size_t collar = appendWood(objects, base - V3{0, size * .085f, 0},
                                      base + V3{0, size * .032f, 0}, collarWidth, wood,
                                      VegetationSection::Collar, noVegetationParent, true);
     if (species == GroundPlant::Juniper) {
-        appendTreeRoots(objects, base, collarWidth, false, angle, wood, collar, random, heightAt);
-        for (int i = 0; i < 7; ++i) {
+        appendTreeRoots(objects, base - V3{0, .027f*size, 0}, collarWidth, false, angle, wood, collar, random,
+                        [&](float x,float z){return heightAt(x,z)-.027f*size;});
+        for (int i = 0; i < 9; ++i) {
             const V3 out = horizontal(angle + i * 2.39996f) * (size * random.range(.36f, .76f));
             V3 start = base + out * .035f;
             start.y = heightAt(start.x, start.z) - size * .025f;
             V3 elbow = base + out * .68f;
             elbow.y = heightAt(elbow.x, elbow.z) + size * random.range(.055f, .115f);
             V3 end = elbow + out * .27f + V3{0, size * random.range(.12f, .24f), 0};
-            size_t branch = appendWood(objects, start, elbow, size * .057f, wood,
+            size_t branch = appendWood(objects, start, elbow, size * .027f, wood,
                                        VegetationSection::PrimaryBranch, collar, true);
-            size_t middle = appendWood(objects, elbow, end, size * .043f, wood,
+            size_t middle = appendWood(objects, elbow, end, size * .018f, wood,
                                        VegetationSection::SecondaryBranch, branch, true);
             const V3 growth = out * .21f + V3{0, size * .08f, 0};
-            size_t shoot = appendWood(objects, end, end + growth, size * .022f, wood,
+            size_t shoot = appendWood(objects, end, end + growth, size * .011f, wood,
                                       VegetationSection::Shoot, middle, true, true);
             const V3 green = V3{.81f, .88f, .87f} * random.range(.83f, 1.16f);
             const V3 axis = end - elbow;
             const V3 lower = elbow - start;
             appendVegetationPart(objects, MeshType::JuniperNeedles, start + lower * .76f, lower + V3{0, size * .19f, 0},
-                                 {size * .31f, length(lower) * .59f, size * .37f}, green * .84f, materialPattern(SurfaceLayer::ConiferNeedle),
+                                 {size * .43f, length(lower) * .88f, size * .52f}, green * .97f, materialPattern(SurfaceLayer::ConiferNeedle),
                                  VegetationSection::Foliage, branch, 3, angle + i * 2.4f);
             appendVegetationPart(objects, MeshType::JuniperNeedles, elbow + axis * .5f, axis,
-                                 {size * .48f, length(axis) * 1.13f, size * .46f}, green, materialPattern(SurfaceLayer::ConiferNeedle),
+                                 {size * .54f, length(axis) * 1.25f, size * .53f}, green, materialPattern(SurfaceLayer::ConiferNeedle),
                                  VegetationSection::Foliage, middle, 3);
             appendVegetationPart(objects, MeshType::JuniperNeedles, end + growth * .5f, growth,
                                  {size * .36f, length(growth), size * .32f}, green * 1.10f, materialPattern(SurfaceLayer::ConiferNeedle),

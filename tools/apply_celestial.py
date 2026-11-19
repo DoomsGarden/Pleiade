@@ -16,6 +16,7 @@ vec3 atmosphereFog(vec3 d){float h=max(d.y,0.0);return mix(mix(vec3(.006,.009,.0
  t=t[:at]+(material_light if name=='material' else common)+'\n'+t[at:]
  if name=='material':
   t=t.replace('const vec3 lightDirection=vec3(-.4562,.7603,.4562);','uniform vec3 lightDirection;')
+  t=t.replace('vec3(.074,.082,.067),sky(reflectRay)*2.05', 'vec3(.074,.082,.067)*mix(.12,1.0,uDaylight),atmosphereFog(reflectRay)*mix(.82,2.05,uDaylight)')
   t=t.replace('vec3(4.4,3.95,3.2)','uLightColor').replace('base*vec3(.35,.40,.20)','base*uLightColor*vec3(.08,.10,.06)')
   t=t.replace('float fog=1.0-exp','ambient*=uSkyAmbient;\n float fog=1.0-exp').replace('direct=mix(direct,vec3(.29,.36,.42),fog)','direct=mix(direct,atmosphereFog(normalize(worldPosition-uEye)),fog)')
  else:
