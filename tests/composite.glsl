@@ -33,8 +33,24 @@ float ambientContact(vec2 p){
  }
  return clamp(1.0-occlusion*(2.0/12.0),.35,1.0);
 }
-float waterHeight(vec2 p){return uWaveStrength*(.025*sin(p.x*.7+p.y*.35+uWaterTime*1.1)+.012*sin(p.y*1.1-p.x*.2-uWaterTime*.8));}
-float groundHeight(vec2 p){return .08*p.x+.12*sin(p.y*.15)+.02*sin(p.x*.8+p.y*.4);}
+
+
+uniform int uWaterMode;
+float channelCenter(float z){return -3.3+3.1*sin(z*.056)+1.3*sin(z*.133+.9);}
+float waterLevel(float z){
+ return uWaterMode==0?0.0:.44+z*.010+(uWaterMode==2?3.65*smoothstep(-2.5,1.7,z):0.0);
+}
+vec3 waveField(vec2 p){
+ float t=uWaterTime, run=uWaterMode==0?.0:.85;
+ vec2 k1=vec2(.748,.395),k2=vec2(-.47,1.94),k3=vec2(2.79,-1.61),k4=vec2(6.8,3.87);
+ float a=dot(p,k1)+t*(1.04+run*.395),b=dot(p,k2)+t*(1.72+run*1.94);
+ float c=dot(p,k3)+t*(2.88-run*1.61),d=dot(p,k4)+t*(3.94+run*3.87);
+ float h=.038*sin(a)+.017*sin(b)+.010*sin(c)+.0035*sin(d);
+ vec2 slope=.038*k1*cos(a)+.017*k2*cos(b)+.010*k3*cos(c)+.0035*k4*cos(d);
+ return vec3(h,slope)*uWaveStrength;
+}
+
+float waterHeight(vec2 p){return waterLevel(p.y)+waveField(p).x;}
 vec3 fromView(vec3 p){return uCameraEye+uCameraRight*p.x+uCameraUp*p.y-uCameraForward*p.z;}
 uniform vec3 uSunDirection;
 uniform vec3 uMoonDirection;
@@ -205,39 +221,67 @@ bool waterReflection(vec3 origin,vec3 direction,out vec2 hitUV,out float confide
  return false;
 }
 
+uniform sampler2D uWaterDepth;
+uniform vec3 uDrift[10];
+uniform int uUnderwater;
 bool waterSurface(vec2 screen,out vec3 result,out float coverage){
  if(uWater==0)return false;
- vec3 ray=uCameraForward+uCameraRight*((screen.x*2.0-1.0)/uProjectionScale.x)+uCameraUp*((screen.y*2.0-1.0)/uProjectionScale.y);
- if(ray.y>=-.001||uCameraEye.y<=.05)return false;
- float t=-uCameraEye.y/ray.y;vec3 point=uCameraEye+ray*t;
- for(int i=0;i<2;i++){t=(waterHeight(point.xz)-uCameraEye.y)/ray.y;point=uCameraEye+ray*t;}
- if(t<=0.0||any(greaterThan(abs(point.xz),vec2(24.0))))return false;
- float depth=texture(uDepth,screen).r;
- if(depth<.999999&&t>=-viewPosition(screen,depth).z)return false;
- float waterDepth=waterHeight(point.xz)-groundHeight(point.xz);if(waterDepth<=0.0)return false;
- coverage=smoothstep(0.0,.045,waterDepth);
- float a=cos(point.x*.7+point.z*.35+uWaterTime*1.1),b=cos(point.z*1.1-point.x*.2-uWaterTime*.8);
- vec3 n=normalize(vec3(-uWaveStrength*(.0175*a-.0024*b),1.0,-uWaveStrength*(.00875*a+.0132*b))),v=normalize(uCameraEye-point);
- vec3 reflected=reflect(-v,n);
- vec3 reflection=cloudSky(celestialSky(reflected),point,reflected);
- // The reflected direction follows the actual water normal; no independent image animation.
- vec2 hitUV;float confidence;
- if(uWaterSSR!=0&&waterReflection(point+n*.04,reflected,hitUV,confidence)){
-  vec3 hitColor=texture(uDirect,hitUV).rgb+texture(uAmbient,hitUV).rgb;
-  reflection=mix(reflection,hitColor,confidence);
+ float depth=texture(uDepth,screen).r, surfaceDepth=texture(uWaterDepth,screen).r;
+ if(surfaceDepth>=.999999 || surfaceDepth>=depth-.0000002)return false;
+ vec3 point=fromView(viewPosition(screen,surfaceDepth));
+ float slope=0.0;
+ if(uWaterMode!=0)slope=.010;
+ if(uWaterMode==2){
+  float s=clamp((point.z+2.5)/4.2,0.0,1.0);
+  slope+=3.65*6.0*s*(1.0-s)/4.2;
  }
- vec2 refracted=clamp(screen+n.xz*.012*min(waterDepth,1.5),vec2(.001),vec2(.999));
+ vec3 wave=waveField(point.xz);
+ vec3 n=normalize(vec3(-wave.y,1.0,-slope-wave.z)),v=normalize(uCameraEye-point);
+ bool below=dot(v,n)<0.0;
+ if(below)n=-n;
+ vec3 reflected=reflect(-v,n);
+ float path=depth<.999999?max(.0,surfaceDepth<depth?length(fromView(viewPosition(screen,depth))-point):.0):12.0;
+ vec2 refracted=clamp(screen+n.xz*.010*min(path,1.6),vec2(.001),vec2(.999));
  float rd=texture(uDepth,refracted).r;
- if(rd>=.999999||fromView(viewPosition(refracted,rd)).y>waterHeight(point.xz))refracted=screen;
+ if(rd>=.999999)refracted=screen;
+ else{
+  vec3 hit=fromView(viewPosition(refracted,rd));
+  if(hit.y>waterLevel(hit.z)+waveField(hit.xz).x+.005||rd<surfaceDepth)refracted=screen;
+ }
  vec3 bed=texture(uDirect,refracted).rgb+texture(uAmbient,refracted).rgb;
- float waterPath=min(30.0,waterDepth/max(dot(n,v),.12));
- vec3 transmission=exp(-(vec3(.65,.27,.18)+vec3(uTurbidity))*waterPath);
- vec3 body=bed*transmission+vec3(.018,.085,.075)*(1.0-transmission)*uSkyAmbient;
+ vec3 trans=exp(-(vec3(.51,.25,.17)+uTurbidity)*min(path,15.0));
+ vec3 body=bed*trans+vec3(.021,.084,.105)*(1.0-trans)*mix(.11,1.0,uDaylight);
+ vec3 environment=cloudSky(celestialSky(reflected),point,reflected);
+ vec2 hitUV;float confidence;
+ if(!below&&uWaterSSR!=0&&waterReflection(point+n*.06,reflected,hitUV,confidence)){
+  environment=mix(environment,texture(uDirect,hitUV).rgb+texture(uAmbient,hitUV).rgb,confidence);
+ }
  float fresnel=waterFresnel(dot(n,v));
- vec3 halfVector=normalize(v+uSkyLightDirection);
- vec3 sun=uLightColor*pow(max(dot(n,halfVector),0.0),512.0)*.8;
- result=mix(body,reflection,fresnel)+sun;return true;
+ vec3 h=normalize(v+uSkyLightDirection);
+ float nt=max(dot(n,h),0.0);
+ float glint=pow(nt,mix(560.0,160.0,uWaveStrength))*.68
+             +pow(nt,mix(140.0,38.0,uWaveStrength))*.085;
+ float foam=0.0;
+ if(uWaterMode!=0&&!below){
+  vec2 uv=vec2(point.x-channelCenter(point.z),point.z);
+  float phase=uv.y*7.1+uWaterTime*(uWaterMode==2?8.5:4.9)+1.45*sin(uv.x*8.0+uv.y*.61);
+  float cascade=smoothstep(.23,.7,slope);
+  foam=cascade*(.15+.42*smoothstep(.30,.92,sin(phase)*sin(uv.x*6.4+phase*.42)));
+  for(int i=0;i<10;i++){
+   vec2 d=point.xz-uDrift[i].xz;
+   foam=max(foam,.42*(1.0-smoothstep(.18,1.0,length(d*vec2(5.6,2.05)))));
+  }
+ }
+ coverage=smoothstep(.003,.070,path);
+ if(below){
+  result=mix(vec3(.013,.050,.058),environment,.45)*mix(.13,.65,uDaylight);
+ }else{
+  result=mix(body,environment,fresnel)+uLightColor*glint;
+  result=mix(result,vec3(.51,.65,.70)*mix(.16,1.0,uDaylight),foam);
+ }
+ return true;
 }
+
 vec3 aces(vec3 x){return clamp((x*(2.51*x+.03))/(x*(2.43*x+.59)+.14),0.0,1.0);}
 vec3 mapped(vec2 p,float contact){
  float depth=texture(uDepth,p).r;
@@ -264,6 +308,11 @@ void main(){
  if(uAA!=0){vec2 px=1.0/vec2(textureSize(uDepth,0));
  vec3 avg=(opaqueNeighbour(uv+vec2(px.x,0),depth,c,contact)+opaqueNeighbour(uv-vec2(px.x,0),depth,c,contact)+opaqueNeighbour(uv+vec2(0,px.y),depth,c,contact)+opaqueNeighbour(uv-vec2(0,px.y),depth,c,contact))*.25;
  c=mix(c,avg,.45*smoothstep(.045,.22,length(c-avg)));}
+ }
+
+ if(uUnderwater!=0&&depth<.999999){
+  float fog=1.0-exp(viewPosition(uv,depth).z*.155);
+  c=mix(c,vec3(.046,.185,.218)*mix(.33,1.0,uDaylight),fog);
  }
  vec3 waterColor;float waterCoverage;
  if(waterSurface(uv,waterColor,waterCoverage))c=mix(c,pow(aces(waterColor*uExposure),vec3(1.0/2.2)),waterCoverage);

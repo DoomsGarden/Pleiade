@@ -132,8 +132,8 @@ def broad_spray(u, v, fern):
                 r=np.hypot(along/(length*.76),across/(.031+.018*np.sin(np.pi*y)))
                 coverage=np.maximum(coverage,1-smooth(.83,1.0,r+.058*np.cos(along*455)))
             else:
-                for offset in (-1,1):
-                    r=np.hypot((along+offset*.035)/(length*.49),(across+offset*.041)/(.055+.027*np.sin(j*3.7+side)**2))
+                for offset in (-2,-1,0,1,2):
+                    r=np.hypot((along+offset*.043)/(length*.222),(across+offset*.024+.019*np.sin(offset*3.7+j))/(.022+.010*np.sin(j*3.7+side)**2))
                     coverage=np.maximum(coverage,1-smooth(.86,1.01,r))
             petiole=curve_mask(u,v,(.5,y),(x0,y0),.004,side*.003)
             coverage=np.maximum(coverage,petiole)
@@ -251,19 +251,19 @@ def author_layers():
         elif layer == 16:
             scars = np.zeros_like(u)
             scar_rng = np.random.default_rng(910)
-            for _ in range(58):
+            for _ in range(78):
                 cx, cy = scar_rng.random(2)
-                length, thickness = scar_rng.uniform(.008, .097), scar_rng.uniform(.0018, .012)
+                length, thickness = scar_rng.uniform(.009, .068), scar_rng.uniform(.0036, .010)
                 dx = (u - cx + .5) % 1 - .5
-                dy = (v - cy + .5 + dx * scar_rng.uniform(-.14, .14)) % 1 - .5
+                dy = (v - cy + .5 + dx * scar_rng.uniform(-.04, .04)) % 1 - .5
                 scar = np.exp(-((dx / length) ** 4 + (dy / thickness) ** 2))
                 scars = np.maximum(scars, scar * scar_rng.uniform(.35, .96))
             peel = blender_noise(58, .48, 34.1, along_grain=10)
-            color = mix((.65, .637, .592), (.90, .883, .824), .35 * broad + .23 * fine + .34 * peel)
-            tears=smooth(.64,.78,peel)*smooth(.49,.72,broad)*.42
-            color = mix(color, (.18, .155, .126), np.maximum(.90*scars,tears))
-            height = .16 * peel - .32 * scars + .07 * fine
-            rough = .71 + .19 * grain
+            color = mix((.65, .641, .599), (.94, .931, .884), .28*broad+.24*fine+.36*peel)
+            tears=smooth(.56,.72,peel)*smooth(.53,.78,broad)*.55
+            color = mix(color, (.129, .112, .090), np.maximum(.95*scars,tears))
+            height = .064*peel-.10*scars+.04*fine
+            rough = .58+.20*grain
         elif layer == 17:
             bands = np.zeros_like(u)
             for mark in (.052, .186, .295, .432, .563, .72, .814, .941):

@@ -129,7 +129,7 @@ function matrix(x, y, z, sx, sy, sz, angle = 0) {
     return [sx*c,0,-sx*s,0, 0,sy,0,0, sz*s,0,sz*c,0, x,y,z,1];
 }
 
-function copyPrototype(objects, prototype, x, y, z, size, angle, tint, distant) {
+export function copyPrototype(objects, prototype, x, y, z, size, angle, tint, distant) {
     if (!prototype) return;
     const c = Math.cos(angle), s = Math.sin(angle);
     for (const part of prototype) {

@@ -1,6 +1,6 @@
 {
   "desktop_base": "0.003.0.17",
-  "viewer_version": "0.000.00.012",
+  "viewer_version": "0.000.00.013",
   "texture_size": 512,
   "material_sources": [
     {
@@ -37,14 +37,14 @@
       "height_source_mode": "I;16"
     }
   ],
-  "desktop_shader_sha256": "7436fcefcd53f93a3059566e60aa47b22ec1f79bf86d5cdf251383235b9bf31a",
+  "desktop_shader_sha256": "20a3829a16c784b9d071f5230e0c9792a8aae8fb69bb1171f0ae93ae605aa54b",
   "limits": [
     "Escenas de referencia y cinco biomas compactos por semilla.",
     "Texturas 512²; mapas PC 1024².",
     "Niveles de detalle por tamaño proyectado. Sin streaming de regiones ni FoW en el visor.",
     "Reflejos SSR experimentales, desactivados inicialmente.",
     "Sombras de contacto heredadas de PC: artefactos pendientes.",
-    "Solo cámara exterior; agua sin simulación de fluidos."
+    "Cuenca con transporte de flotantes y cámara sumergible. Caudal parametrizado."
   ],
   "baked_material_sources": [
     {

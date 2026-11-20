@@ -71,6 +71,11 @@ struct PreviewExporter {
         scene(makeShoreScene());
         meta << ",\"building\":";
         scene(makeBuildingScene());
+        meta << ",\"buildingForms\":{\"stone\":";
+        scene(makeBuildingScene(BuildingForm::Stone));
+        meta << ",\"shelter\":";
+        scene(makeBuildingScene(BuildingForm::Shelter));
+        meta << '}';
         meta << ",\"meshIds\":{\"rock\":" << int(MeshType::RockDetail) << ",\"box\":" << int(MeshType::BeveledBox)
              << ",\"roof\":" << int(MeshType::Roof) << ",\"vine\":" << int(MeshType::VineStem) << "}";
         meta << ",\"plants\":{";

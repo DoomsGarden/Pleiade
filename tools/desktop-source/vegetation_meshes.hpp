@@ -9,13 +9,18 @@ inline constexpr std::array vegetationMeshes{
     MeshType::FernFrondFar, MeshType::TreeTrunk, MeshType::BirchLeaves, MeshType::BirchLeavesFar,
     MeshType::BambooStem, MeshType::BambooLeaves, MeshType::PalmFrond, MeshType::Branch,
     MeshType::TreeTrunkFar, MeshType::BambooStemFar, MeshType::BambooLeavesFar, MeshType::PalmFrondFar,
-    MeshType::SpruceNeedlesMid, MeshType::PineNeedlesMid, MeshType::JuniperNeedlesMid, MeshType::VineStem};
+    MeshType::SpruceNeedlesMid, MeshType::PineNeedlesMid, MeshType::JuniperNeedlesMid, MeshType::VineStem,
+    MeshType::BirchLeavesMid,MeshType::BambooLeavesMid,MeshType::PalmFrondMid,MeshType::FernFrondMid};
 
 inline MeshType vegetationMiddleMesh(MeshType mesh) {
     switch (mesh) {
     case MeshType::SpruceNeedles: return MeshType::SpruceNeedlesMid;
     case MeshType::PineNeedles: return MeshType::PineNeedlesMid;
     case MeshType::JuniperNeedles: return MeshType::JuniperNeedlesMid;
+    case MeshType::BirchLeaves: return MeshType::BirchLeavesMid;
+    case MeshType::BambooLeaves: return MeshType::BambooLeavesMid;
+    case MeshType::PalmFrond: return MeshType::PalmFrondMid;
+    case MeshType::FernFrond: return MeshType::FernFrondMid;
     default: return mesh;
     }
 }
@@ -127,7 +132,10 @@ void buildVegetationMesh(MeshType mesh, Triangle triangle) {
     const bool trunk = mesh == MeshType::TreeTrunk || mesh == MeshType::TreeTrunkFar;
     const bool bambooStem = mesh == MeshType::BambooStem || mesh == MeshType::BambooStemFar;
     if (mesh == MeshType::TreeWood || trunk || bambooStem || mesh == MeshType::Branch) {
-        auto center = [&](float t) { return trunk ? treeTrunkCenter(t) : V3{0, t - .5f, 0}; };
+        auto center = [&](float t) {
+            const float curve=std::sin(pi*t);
+            return trunk?treeTrunkCenter(t):V3{bambooStem?0.f:.058f*curve*curve,t-.5f,0};
+        };
         auto radius = [&](float t, float angle) {
             if (trunk) {
                 const float flare = .090f * std::exp(-t * 35);
@@ -136,12 +144,13 @@ void buildVegetationMesh(MeshType mesh, Triangle triangle) {
             }
             if (bambooStem)
                 return .46f - .16f * t + .028f * std::pow(.5f + .5f * std::cos(2 * pi * 12 * t), 5.f);
-            return .49f - (mesh == MeshType::Branch ? .315f : .103f) * t + .006f * std::sin(5 * angle + 3 * t);
+            const float taper=mesh==MeshType::Branch?.455f:.188f;
+            return .476f-taper*t+.036f*std::exp(-t*14)+.008f*std::sin(5*angle+3*t)*(1-t);
         };
         const int rings = mesh == MeshType::TreeTrunk ? 26 : mesh == MeshType::TreeTrunkFar ? 9 :
-                          mesh == MeshType::BambooStem ? 48 : mesh == MeshType::BambooStemFar ? 4 : 2;
+                          mesh == MeshType::BambooStem ? 48 : mesh == MeshType::BambooStemFar ? 4 : 4;
         const int sides = mesh == MeshType::TreeTrunk ? 24 : mesh == MeshType::BambooStem ? 10 : 8;
-        vegetationTube(center, radius, rings, sides, true, triangle);
+        vegetationTube(center, radius, rings, sides, trunk||bambooStem, triangle);
         return;
     }
 
@@ -215,15 +224,16 @@ void buildVegetationMesh(MeshType mesh, Triangle triangle) {
         return;
     }
 
-    if (mesh == MeshType::FernFrond || mesh == MeshType::FernFrondFar) {
+    if (mesh == MeshType::FernFrond || mesh == MeshType::FernFrondFar || mesh==MeshType::FernFrondMid) {
         const bool far = mesh == MeshType::FernFrondFar;
+        const bool mid = mesh == MeshType::FernFrondMid;
         if(far){
             ribbon({0,-.49f,0},{-.04f,.49f,0},{0,0,1},.49f,-.201f,4,false);
             return;
         }
         auto rachis = [](float t) { return V3{.23f * std::sin(pi * t) - .04f * t, t - .5f,
                                               .026f * std::sin(pi * t * 2)}; };
-        const int pinnae = 18;
+        const int pinnae = mid?11:18;
         for (int i = 0; i < pinnae; ++i) {
             const float t = float(i) / pinnae;
             stalk(rachis(t), rachis(t + 1.f / pinnae), .013f * (1 - .86f * t));
@@ -235,35 +245,38 @@ void buildVegetationMesh(MeshType mesh, Triangle triangle) {
                 const V3 tip = from + V3{-.056f + .019f * std::sin(i * 2.f),
                     std::min(.476f - from.y, .033f + .055f * attach), side * breadth};
                 ribbon(from, tip, unit(cross(tip - from, {1, 0, 0})),
-                       std::min(.048f, .29f * breadth), .035f * (1 - attach), 3, false);
+                       std::min(.048f, .29f * breadth), .035f * (1 - attach), mid?1:3, false);
             }
         }
         return;
     }
 
-    const bool bambooLeaf = mesh == MeshType::BambooLeaves || mesh == MeshType::BambooLeavesFar;
-    if (mesh == MeshType::BirchLeaves || bambooLeaf) {
+    const bool bambooLeaf = mesh==MeshType::BambooLeaves||mesh==MeshType::BambooLeavesFar||mesh==MeshType::BambooLeavesMid;
+    if (mesh==MeshType::BirchLeaves||mesh==MeshType::BirchLeavesMid||bambooLeaf) {
         const bool far = mesh == MeshType::BambooLeavesFar;
+        const bool mid = mesh == MeshType::BirchLeavesMid || mesh == MeshType::BambooLeavesMid;
         stalk({0, -.5f, 0}, {.020f, .46f, 0}, .013f);
-        const int count = bambooLeaf ? (far ? 6 : 11) : (far ? 13 : 24);
+        const int count=bambooLeaf?(far?7:mid?11:16):(mid?22:31);
         for (int i = 0; i < count; ++i) {
             const float t = float(i) / count, a = i * 2.39996f;
             const V3 dir{std::cos(a), 0, std::sin(a)}, crosswise{-dir.z, 0, dir.x};
             const V3 base{.020f * t, -.41f + .77f * t, 0};
-            const V3 neck = base + dir * .077f + up * .031f;
+            const V3 neck = base + dir * (bambooLeaf?.061f:.032f+.074f*std::sin(pi*t)) + up * .023f;
             stalk(base, neck, .005f);
-            const V3 tip = neck + dir * ((bambooLeaf ? .37f : .28f) - .12f * t) + up * (.025f + .064f * std::cos(7 * t));
+            const float length=(bambooLeaf?.30f:.124f)*(1-.32f*t)*(1+.27f*std::sin(i*4.25f));
+            const V3 tip=neck+dir*length+up*(.013f+.04f*std::cos(7*t));
             const V3 axis = unit(cross(crosswise, tip - neck));
-            ribbon(neck, tip, unit(crosswise + axis * .40f), bambooLeaf ? .037f : .090f,
-                   bambooLeaf ? .056f : .042f, far ? 1 : 3, false);
+            ribbon(neck,tip,unit(crosswise+axis*.40f),bambooLeaf?.023f:.042f,
+                   bambooLeaf?.039f:.027f,far||mid?1:3,false);
         }
         return;
     }
 
-    if (mesh == MeshType::PalmFrond || mesh == MeshType::PalmFrondFar) {
+    if (mesh==MeshType::PalmFrond||mesh==MeshType::PalmFrondFar||mesh==MeshType::PalmFrondMid) {
         auto rachis = [](float t) { return V3{.22f * std::sin(pi * t) - .34f * t * t, t - .5f, 0}; };
         const bool far = mesh == MeshType::PalmFrondFar;
-        const int segments = far ? 8 : 14;
+        const bool mid = mesh == MeshType::PalmFrondMid;
+        const int segments=far?10:mid?17:25;
         for (int i = 0; i < segments; ++i) {
             const float t = float(i) / segments;
             stalk(rachis(t), rachis(t + 1.f / segments), .017f * (1 - .90f * t));
@@ -272,7 +285,7 @@ void buildVegetationMesh(MeshType mesh, Triangle triangle) {
                 const V3 from = rachis(t);
                 const float reach = .41f * std::pow(std::sin(pi * t), .75f) * (1 + .075f * std::sin(i * 3.4f + side));
                 const V3 to = from + V3{-.065f - .16f * reach, .018f + .046f * (1 - t), side * reach};
-                ribbon(from, to, unit(cross(to - from, {1, 0, 0})), reach * (far ? .155f : .102f), .019f, far ? 1 : 2, false);
+                ribbon(from,to,unit(cross(to-from,{1,0,0})),reach*(far?.098f:mid?.066f:.055f),.019f,far||mid?1:2,false);
             }
         }
         return;

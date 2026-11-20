@@ -1,6 +1,9 @@
 // Unit-test the JS resource/state layer with a strict mock. This is NOT a GPU/browser test.
 import fs from 'node:fs/promises';import assert from 'node:assert/strict';
 import {terrainPieces} from '../dist/biomes.js';
+import {climateAt} from '../dist/climate.js';
+import {channel,waterBase,createWatershed,driftSamples} from '../dist/watershed.js';
+import {plantContact} from '../dist/plant_contact.js';
 let id=0,boundFbo=null,activeUnit=0,currentProgram=null;const attachments=new Map(),textures=new Map(),buffers=new Map();let drawCalls=0;const uniformWrites=new Map();
 const constants=new Map();const mk=()=>({id:++id});const methods={NO_ERROR:0,
  createFramebuffer:()=>{const f=mk();attachments.set(f,new Set());return f;},bindFramebuffer:(_,f)=>boundFbo=f,
@@ -8,9 +11,9 @@ const constants=new Map();const mk=()=>({id:++id});const methods={NO_ERROR:0,
  createProgram:()=>({...mk(),samplers:new Map(),shaders:[]}),createShader:()=>mk(),shaderSource:(s,source)=>s.source=source,attachShader:(p,s)=>p.shaders.push(s),
  linkProgram:p=>{for(const s of p.shaders)for(const m of s.source.matchAll(/uniform sampler2D(?:Array)? (\w+)/g))p.samplers.set(m[1],0);},getShaderParameter:()=>true,getProgramParameter:()=>true,
  getUniformLocation:(p,n)=>({p,n}),uniform1i:(l,v)=>{uniformWrites.set(l.n,v);if(l.p.samplers.has(l.n))l.p.samplers.set(l.n,v);},
- uniform1f:(l,v)=>{assert(Number.isFinite(v));uniformWrites.set(l.n,v);},uniform3fv:(l,v)=>{assert(v.length===3&&Array.from(v).every(Number.isFinite));uniformWrites.set(l.n,[...v]);},
+ uniform1f:(l,v)=>{assert(Number.isFinite(v));uniformWrites.set(l.n,v);},uniform3fv:(l,v)=>{assert(v.length===(l.n==='uDrift[0]'?30:3)&&Array.from(v).every(Number.isFinite));uniformWrites.set(l.n,[...v]);},
  uniformMatrix4fv:(_,__,m)=>assert(m.length===16&&Array.from(m).every(Number.isFinite),'finite matrix'),
- useProgram:p=>currentProgram=p,drawElementsInstanced:(_,count,__,___,n)=>{assert(count>0&&n>0);draw();},drawArrays:()=>draw(),
+ useProgram:p=>currentProgram=p,drawElementsInstanced:(_,count,__,___,n)=>{assert(count>0&&n>0);draw();},drawArrays:()=>draw(),drawElements:()=>draw(),
  getParameter:p=>p===gl.VERSION?'MOCK (not a GPU)':4096,getError:()=>0,isContextLost:()=>false,getExtension:()=>({}),checkFramebufferStatus:()=>gl.FRAMEBUFFER_COMPLETE,
  createTexture:mk,createBuffer:mk,createVertexArray:mk,bindBuffer:(target,b)=>buffers.set(target,b),bufferData:(target,data)=>{assert(buffers.has(target));assert(data.byteLength>0);},
 };function draw(){if(boundFbo)for(const unit of currentProgram.samplers.values())assert(!attachments.get(boundFbo).has(textures.get(unit)),'texture feedback loop');drawCalls++;}
@@ -62,7 +65,7 @@ canvas.onpointercancel({pointerId:1});canvas.onpointercancel({pointerId:2});
 globalThis.innerWidth=800;globalThis.innerHeight=1280;pleiade.render();assert(canvas.height>canvas.width);assert.equal(pleiade.state.errors.length,0);assert(drawCalls>20);
 console.log('PASS: JS initialization, 9 scene/quality combinations, framebuffer feedback checks, finite matrices, pointer orbit/pinch/cancel and portrait resizing. Mock only; no WebGL GPU validation.');
 
-pleiade.useScene('shore');
+pleiade.useScene('materials');
 pleiade.camera.distance=3.5;
 pleiade.setQuality('balanced');pleiade.render();
 const balancedTriangles=pleiade.report().render.trianglesPerPass;
@@ -74,7 +77,7 @@ const meshById=new Map(geometry.meshes.map(mesh=>[mesh.id,mesh]));
 const allFar=geometry.shore.filter(part=>part.visible!==false).reduce((sum,part)=>{
  const mesh=meshById.get(part.mesh);return sum+meshById.get(mesh.far??mesh.id).indices/3;
 },0);
-assert(ecoRender.trianglesPerPass<=allFar+14000,'eco respects the additional triangle budget');
+assert(ecoRender.trianglesPerPass<=allFar+22000,'eco respects the additional foliage transition budget');
 assert(ecoRender.trianglesPerPass<balancedTriangles&&ecoRender.needleBundles>0,'eco keeps individual nearby needles with fewer triangles');
 assert.equal(pleiade.camera,inspectionCamera,'quality changes preserve the viewing position');
 Object.assign(globalThis,{innerWidth:412,innerHeight:915,devicePixelRatio:2.625});
@@ -82,6 +85,36 @@ pleiade.render();assert.equal(canvas.height,640);assert(canvas.width<canvas.heig
 Object.assign(globalThis,{innerWidth:1536,innerHeight:960,devicePixelRatio:1});
 pleiade.render();assert.equal(canvas.width,640);assert(canvas.height<canvas.width);
 console.log('PASS: light foliage and stable camera with phone portrait and tablet landscape sizing.');
+
+for(const [mode,index] of ['lake','river','falls'].entries()){
+ const basin=createWatershed(index,12345);
+ assert.equal(basin.area,104);
+ const x=index==='lake'?-11:channel(-6);
+ assert(basin.height(x,-6)<waterBase(index,-6)-.43);
+ pleiade.setWaterMode(index);pleiade.render();assert.equal(uniformWrites.get('uWaterMode'),mode);
+ assert.equal(pleiade.report().shore.mode,index);
+ const a=driftSamples(index,5), b=driftSamples(index,6);
+ if(index!=='lake'){
+  assert(b[2]<a[2]);assert(b[1]<a[1]);
+  assert(Math.abs(b[0]-channel(b[2]))<2.1);
+ }
+}
+el('dive').onclick();pleiade.render();assert.equal(uniformWrites.get('uUnderwater'),true);
+pleiade.setWaterMode('lake');
+for(const form of ['cabin','stone','shelter']){
+ pleiade.setBuildingForm(form);pleiade.render();assert.equal(pleiade.report().glassPanes,form==='cabin'?8:0);
+}
+pleiade.useScene('materials');
+const target=geometry.shore.find(o=>o.section===5&&o.instance[12]>4&&o.instance[13]>2&&o.instance[14]>-8);
+const point=target.instance.slice(12,15),impulse=[1.35,.45,1.4];
+assert.equal(plantContact(geometry.shore,point,[0,0,0]),null);
+assert(pleiade.impact(point,impulse));pleiade.setTime(.8);assert(pleiade.report().detached>=2);
+el('restore-plant').onclick();pleiade.render();assert.equal(pleiade.report().detached,0);
+assert(climateAt('winter','clear',0).leaves<climateAt('summer','clear',0).leaves);
+pleiade.setClimate('winter','snow');pleiade.render();assert.equal(uniformWrites.get('uWeatherKind'),2);
+pleiade.setClimate('autumn','clear');pleiade.render();assert.equal(uniformWrites.get('uWeatherKind'),3);
+pleiade.setClimate('summer','clear');
+console.log('PASS: watershed transport, building styles, seasons and detached branch hierarchy.');
 
 for(const biome of ['forest','desert','snow','tropical','bamboo']){
  pleiade.useBiome(biome);pleiade.render();

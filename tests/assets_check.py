@@ -8,7 +8,7 @@ for mesh in meshes.values():
  assert len(v)%stride==0 and np.isfinite(v).all() and len(i)==mesh['indices'] and max(i)<len(v)//stride
  if 'far' in mesh: assert meshes[mesh['far']]['indices']<mesh['indices']
  if 'mid' in mesh: assert meshes[mesh['far']]['indices']<meshes[mesh['mid']]['indices']<mesh['indices']
-for population in [data['shore'],data['building'],data['snowCabin'],*data['plants'].values()]:
+for population in [data['shore'],data['building'],data['snowCabin'],*data['buildingForms'].values(),*data['plants'].values()]:
  for index,obj in enumerate(population):
   assert len(obj['instance'])==24 and np.isfinite(obj['instance']).all() and obj['mesh'] in meshes
   if obj.get('parentDistance'):
@@ -25,7 +25,15 @@ detail=np.fromfile(r/'surfaces-normal.rgba',dtype=np.uint8).reshape(count,size,s
 assert np.max(np.abs(np.linalg.norm(detail[...,:3].astype(float)/127.5-1,axis=-1)-1))<.009
 for layer in (2,3,14,15,18,19): assert np.min(color[layer,:,:,3])==0 and np.max(color[layer,:,:,3])>=230
 for scene in (data['building'],data['snowCabin']):
- assert sum(obj['instance'][22]==18 for obj in scene)==8, 'eight separate glass panes'
+ panes=[obj['instance'] for obj in scene if obj['instance'][22]==18]
+ assert len(panes)==8, 'eight separate glass panes'
+ wall=[obj['instance'] for obj in scene if abs(obj['instance'][14]-2.45)<.001 and obj['instance'][22]==27]
+ assert len(wall)>=20
+ for pane in panes:
+  for board in wall:
+   overlaps_x=abs(pane[12]-board[12])<(pane[0]+board[0])*.5-.001
+   overlaps_y=abs(pane[13]-board[13])<(pane[5]+board[5])*.5-.001
+   assert not (overlaps_x and overlaps_y), 'each glass pane must have a clear wall opening'
  gable=next(obj for obj in scene if obj['mesh']==data['meshIds']['roof'])['instance']
  deck=[obj['instance'] for obj in scene if obj['mesh']==data['meshIds']['box'] and abs(obj['instance'][10]-6.4)<.001]
  assert len(deck)==2

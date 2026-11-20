@@ -26,20 +26,32 @@ inline void appendCabin(Scene &scene, bool snowy = false) {
 
     const float front = depth, back = -depth;
     const float courses = .30f;
+    constexpr float windowX = 1.98f, windowHalf = .526f, windowBottom = .865f, windowTop = 1.835f;
+    constexpr float doorHalf = .572f, doorTop = 2.056f;
+    struct Opening { float left, right, bottom, top; };
+    const std::array openings{
+        Opening{-windowX-windowHalf,-windowX+windowHalf,windowBottom,windowTop},
+        Opening{-doorHalf,doorHalf,0.f,doorTop},
+        Opening{windowX-windowHalf,windowX+windowHalf,windowBottom,windowTop}};
     for (int row = 0; row < 8; ++row) {
-        const float y = floor + (float(row) + .5f) * courses;
+        const float bottom = row*courses, top = (row+1)*courses;
+        const float y = floor + (bottom + top)*.5f;
         const V3 wood = timber * (.92f + .10f * std::sin(float(row) * 2.43f));
         part({0, y, back}, {6.76f, .305f, .275f}, wood, SurfaceLayer::Timber);
-        for (float side : {-1.f, 1.f}) {
+        for (float side : {-1.f, 1.f})
             part({side * width, y, 0}, {.28f, .304f, depth * 2}, wood, SurfaceLayer::Timber);
-            if (row < 3 || row > 5) {
-                part({side * 1.99f, y, front}, {2.74f, .305f, .28f}, wood, SurfaceLayer::Timber);
-            } else {
-                part({side * 1.02f, y, front}, {.80f, .305f, .28f}, wood, SurfaceLayer::Timber);
-                part({side * 2.88f, y, front}, {1.01f, .305f, .28f}, wood, SurfaceLayer::Timber);
-            }
+        auto face=[&](float left,float right,float lo,float hi){
+            if(right-left>.01f&&hi-lo>.006f)
+                part({(left+right)*.5f,floor+(lo+hi)*.5f,front},{right-left,hi-lo,.28f},wood,SurfaceLayer::Timber);
+        };
+        float left=-3.44f;
+        for(const auto& cut:openings){
+            face(left,cut.left,bottom,top);
+            face(cut.left,cut.right,bottom,std::min(top,cut.bottom));
+            face(cut.left,cut.right,std::max(bottom,cut.top),top);
+            left=cut.right;
         }
-        if (row == 7) part({0, y, front}, {1.24f, .305f, .30f}, wood, SurfaceLayer::Timber);
+        face(left,3.44f,bottom,top);
     }
     const float run = 3.91f, rise = 1.65f;
     const float roofAngle = std::atan2(rise, run);
@@ -76,16 +88,22 @@ inline void appendCabin(Scene &scene, bool snowy = false) {
     part({1.83f, ridge + .68f, -1.22f}, {.82f, .17f, .81f}, stone, SurfaceLayer::Masonry);
 
     for (float side : {-1.f, 1.f}) {
-        const float x = side * 1.98f, y = floor + 1.35f, z = front + .065f;
-        for(float dx : {-.269f,.269f})
-            for(float dy : {-.23f,.23f})
-                scene.add(MeshType::Cube,{x+dx,y+dy,z+.037f},{.51f,.445f,.025f},
+        const float x = side * windowX, y = floor + (windowBottom+windowTop)*.5f, z = front + .065f;
+        for(float dx : {-.259f,.259f})
+            for(float dy : {-.232f,.232f})
+                scene.add(MeshType::Cube,{x+dx,y+dy,z+.054f},{.488f,.431f,.013f},
                           {.016f,.026f,.024f},.085f,0,18.f);
         for (float dx : {-.55f, 0.f, .55f})
             part({x + dx, y, z + .12f}, {.105f, 1.12f, .15f}, beam, SurfaceLayer::Timber);
         for (float dy : {-.50f, 0.f, .50f})
             part({x, y + dy, z + .12f}, {1.22f, .095f, .15f}, beam, SurfaceLayer::Timber);
         part({x, y - .61f, z + .20f}, {1.37f, .12f, .33f}, timber, SurfaceLayer::Timber);
+    }
+    part({0,floor-.006f,0},{6.6f,.098f,4.76f},beam*.61f,SurfaceLayer::Timber);
+    for(float side : {-1.f,1.f}) {
+        part({side*2.45f,floor+.74f,-1.85f},{1.20f,.11f,.51f},timber*.60f,SurfaceLayer::Timber);
+        for(float offset : {-.43f,.43f})
+            part({side*2.45f+offset,floor+.37f,-1.85f},{.10f,.74f,.45f},beam*.49f,SurfaceLayer::Timber);
     }
     part({0, floor + 1.031f, front + .012f}, {1.13f, 2.08f, .15f}, beam * .71f, SurfaceLayer::Timber);
     for (int board = -2; board <= 2; ++board) {
@@ -105,11 +123,42 @@ inline void appendCabin(Scene &scene, bool snowy = false) {
     }
 }
 
-inline Scene makeBuildingScene() {
+enum class BuildingForm { Cabin, Stone, Shelter };
+
+inline Scene makeBuildingScene(BuildingForm form=BuildingForm::Cabin) {
     Scene scene(0, false);
     scene.add(MeshType::ShoreGround, {0, 0, 0}, {1, 1, 1}, {.20f, .17f, .10f}, .93f, 0, 4);
     scene.objects.back().half = {24, 3, 24};
-    appendCabin(scene);
+    if(form==BuildingForm::Cabin)appendCabin(scene);
+    else {
+        const bool stone=form==BuildingForm::Stone;
+        auto piece=[&](V3 at,V3 dimensions,V3 color,SurfaceLayer layer){
+            scene.add(MeshType::BeveledBox,at,dimensions,color,.83f,0,materialPattern(layer));
+        };
+        const V3 timber{.81f,.80f,.72f}, masonry{.91f,.90f,.87f};
+        piece({0,.10f,0},{5.6f,.45f,4.2f},masonry,SurfaceLayer::Masonry);
+        if(stone){
+            for(float side : {-1.f,1.f}){
+                piece({side*2.51f,1.62f,0},{.48f,2.89f,4.0f},masonry,SurfaceLayer::Masonry);
+                piece({side*1.72f,1.62f,1.94f},{1.61f,2.89f,.38f},masonry,SurfaceLayer::Masonry);
+            }
+            piece({0,1.62f,-1.94f},{5.12f,2.89f,.46f},masonry,SurfaceLayer::Masonry);
+            piece({0,2.72f,1.96f},{2.22f,.66f,.51f},masonry,SurfaceLayer::Masonry);
+            piece({0,1.33f,1.78f},{1.52f,2.03f,.12f},timber*.72f,SurfaceLayer::Timber);
+            piece({1.73f,3.55f,-.86f},{.64f,1.56f,.68f},masonry,SurfaceLayer::Masonry);
+        }else{
+            for(float x : {-2.35f,2.35f})for(float z : {-1.75f,1.75f}) {
+                piece({x,.33f,z},{.43f,.50f,.43f},masonry,SurfaceLayer::Masonry);
+                piece({x,1.71f,z},{.25f,2.75f,.25f},timber,SurfaceLayer::Timber);
+            }
+            piece({0,2.88f,1.76f},{5.16f,.24f,.25f},timber*.82f,SurfaceLayer::Timber);
+            piece({0,.76f,-1.37f},{3.98f,.16f,.57f},timber,SurfaceLayer::Timber);
+        }
+        const float rise=stone?1.67f:1.03f;
+        scene.add(MeshType::Roof,{0,2.99f+rise*.5f,0},{6.22f,rise,4.90f},
+                  stone?V3{.58f,.60f,.58f}:V3{.65f,.58f,.49f},.90f,0,
+                  materialPattern(stone?SurfaceLayer::Stone:SurfaceLayer::Timber));
+    }
     VegetationRandom random(4770);
     for (int i = 0; i < 13; ++i) {
         const float x = random.range(-8, 8), z = random.range(3.5f, 8.6f);

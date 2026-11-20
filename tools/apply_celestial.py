@@ -56,5 +56,25 @@ void main(){
 """
 
  s[name]=t
+shader_dir=p/'tools/shaders'
+waves=(shader_dir/'waves.glsl').read_text()
+webgl='#version 300 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler2D;\n'
+s['waterVertex']=webgl+waves+(shader_dir/'water_vertex.glsl').read_text()
+s['depthOnly']=webgl+'void main(){}\n'
+s['glass']=webgl+(shader_dir/'glass.glsl').read_text()
+s['weatherVertex']=webgl+(shader_dir/'weather_vertex.glsl').read_text()
+s['weather']=webgl+(shader_dir/'weather.glsl').read_text()
+t=s['composite']
+a=t.index('float waterHeight(');b=t.index('vec3 fromView',a)
+common_waves=waves.replace('uniform float uWaterTime;','').replace('uniform float uWaveStrength;','')
+t=t[:a]+common_waves+'\nfloat waterHeight(vec2 p){return waterLevel(p.y)+waveField(p).x;}\n'+t[b:]
+a=t.index('bool waterSurface(');b=t.index('vec3 aces(',a)
+s['composite']=t[:a]+(shader_dir/'watershed.glsl').read_text()+'\n'+t[b:]
+s['composite']=s['composite'].replace(' vec3 waterColor;float waterCoverage;', '''
+ if(uUnderwater!=0&&depth<.999999){
+  float fog=1.0-exp(viewPosition(uv,depth).z*.155);
+  c=mix(c,vec3(.046,.185,.218)*mix(.33,1.0,uDaylight),fog);
+ }
+ vec3 waterColor;float waterCoverage;''')
 for name,t in s.items():(p/'tests'/f'{name}.glsl').write_text(t)
 path.write_text(json.dumps(s))

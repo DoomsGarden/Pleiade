@@ -2,6 +2,6 @@
 
 .select-label input{width:100%;min-height:40px;font:inherit;color:inherit;background:#172e28;border:1px solid var(--line);border-radius:6px;padding:5px}input[type=range]{padding:0;accent-color:#dce8b8}output{font-size:12px}
 
-#biome-control{display:block;pointer-events:auto;margin-top:14px}
-#biome-control select{min-width:168px;box-shadow:0 2px 10px #17241a55}
-@media(max-width:650px){nav button{font-size:clamp(10px,3.1vw,14px);padding-inline:4px}#biome-control select{min-width:142px}}
+#biome-control,.scene-select{display:block;pointer-events:auto;margin-top:14px}
+#biome-control select,.scene-select select{min-width:168px;box-shadow:0 2px 10px #17241a55}
+@media(max-width:650px){nav button{font-size:clamp(10px,3.1vw,14px);padding-inline:4px}#biome-control select,.scene-select select{min-width:142px}}

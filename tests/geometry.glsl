@@ -11,6 +11,7 @@ layout(location=7) in vec4 aSurface;
 layout(location=8) in vec2 aUV;
 uniform mat4 uVP;
 uniform float uTime;
+uniform float uWind;
 out vec3 rasterPosition;
 out vec3 rasterLocal;
 out vec2 rasterUV;
@@ -46,6 +47,13 @@ void main(){
  } else if(aSurface.w>1.5 && aSurface.z<9.5){
    float tip=aPosition.y+.5;
    p.x+=sin(uTime*1.8+p.x*.35+p.z*.2)*.16*tip*tip;
+ }
+ float leafLayer=aSurface.z-20.0;
+ bool flexible=(leafLayer>=-.5&&leafLayer<4.5)||(leafLayer>=13.5&&leafLayer<15.5)||(leafLayer>=17.5&&leafLayer<19.5);
+ if(flexible&&uWind>.0){
+  float tip=clamp(aPosition.y+.5,0.0,1.0);
+  vec2 phase=vec2(p.x*.51+p.z*.27,p.z*.64-p.x*.18);
+  p.xz+=.038*uWind*tip*tip*sin(phase+uTime*vec2(1.63,2.21));
  }
  rasterLocal=aPosition;
  rasterUV=aUV;

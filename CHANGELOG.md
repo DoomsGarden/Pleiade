@@ -1,3 +1,17 @@
+# Versión de prueba 0.000.00.013 — ventanas, vegetación y cuenca
+
+- Los ocho paños de la cabaña se montan en huecos reales del muro y muestran el interior a través de una capa con reflejo del entorno. La veta de la madera mantiene una escala en metros. Edificación incorpora una casa de piedra y un refugio abierto.
+- La mezcla de nueve variantes de los suelos se aplica en coordenadas continuas. El color, las normales y la rugosidad comparten los pesos de mezcla y la escala. Las nueve piezas geométricas de cada bioma conservan alturas y normales coincidentes en los bordes.
+- Las copas tienen tres niveles de detalle y transiciones por tamaño proyectado. La corteza del abedul usa la altura y el ángulo alrededor de cada tronco para distribuir lenticelas cortas, zonas de papel desprendido y cicatrices desde la base hasta la copa. Las ramas leñosas se afinan y los puntos de rotura quedan en los datos del ejemplar.
+- Orilla incorpora lago, río y cascada en una cuenca de 104 m de lado. Los flotantes avanzan con el caudal incluso con oleaje en Calma. El agua tiene profundidad propia y admite una cámara sumergida. El caudal sigue un cauce parametrizado.
+- La estación modifica el follaje del abedul, que pierde hojas en otoño. Las coníferas conservan la copa. Lluvia y nieve modifican el ambiente y el suelo. En Materiales se puede probar un impacto sobre una rama que se desprende junto con sus ramillas y hojas.
+
+El cambio se verificó en Chromium WebGL 2 por software, con cámaras iguales para comparar la cabaña, el suelo y la vegetación con la `.012`. También se comprobó el tronco del abedul desde varios ángulos y con las sombras desactivadas. El visor Android incluye los cambios. Quedan pendientes las mediciones en la tablet, la integración de la cuenca y el clima en Windows, un sistema general de fluidos y colisiones con entidades de juego. [Abedul](tests/results/visual-013/abedul.jpg) · [Primer plano](tests/results/visual-013/comparacion.jpg) · [Cuenca y clima](tests/results/visual-013/cuenca.jpg).
+
+Referencias de la corteza, las hojas y el porte del abedul. [Royal Horticultural Society](https://www.rhs.org.uk/plants/2261/betula-pendula/details) · [Kew](https://powo.science.kew.org/taxon/urn%3Alsid%3Aipni.org%3Anames%3A295174-1/general-information) · [Forest Research](https://www.forestresearch.gov.uk/tools-and-resources/tree-species-database/131561-silver-birch-sbi-2/) · [Atlas europeo de especies forestales](https://forest.jrc.ec.europa.eu/media/atlas/Betula_spp.pdf) · [University College Cork](https://www.ucc.ie/en/tree-explorers/trees/a-z/betulapendula/).
+
+---
+
 # Versión de prueba 0.000.00.012 — copas, suelo y vidrio
 
 - El bosque templado, el bambusal, los núcleos de pícea y el trópico se generan por grupos separados por claros. La pendiente, la humedad y la distancia a otros árboles condicionan cada ejemplar. Cada grupo puede incluir árboles maduros, regeneración y sotobosque. El trópico combina palmeras y árboles de frondosa tropical.
