@@ -336,11 +336,25 @@ void main(){
  float layer=surf.z-20.0;
  bool foliage=(layer>=-.5&&layer<3.5)||(layer>=13.5&&layer<15.5)||(layer>=17.5&&layer<19.5);
  bool scanned=uMaterials!=0&&((surf.z>3.5&&surf.z<4.5)||(surf.z>4.5&&surf.z<5.5&&atlasView<-.5)||(surf.z>8.5&&surf.z<9.5));
- if(surf.z>=19.5){
+ // Metre-scale curved tiles with overlaps, filtered when courses become subpixel.
+ if(abs(surf.z-130.0)<.1){
+   bool endSlope=abs((objectNormals[2].xyz*max(objectDimensions.z,.01)).x*n.x+
+     (objectNormals[2].xyz*max(objectDimensions.z,.01)).z*n.z)>.27;
+   vec2 axis=endSlope?vec2(rasterLocal.x*objectDimensions.x,rasterLocal.z*objectDimensions.z):
+                      vec2(rasterLocal.z*objectDimensions.z,rasterLocal.x*objectDimensions.x);
+   vec2 tile=axis/vec2(.22,.37), fringe=fwidth(tile);
+   float density=1.0-smoothstep(.18,.73,max(fringe.x,fringe.y));
+   float barrels=.5+.5*cos(tile.x*6.2831853);
+   float course=smoothstep(.02,.18,fract(tile.y))*(1.0-.55*smoothstep(.83,.998,fract(tile.y)));
+   float age=filteredNoise(worldPosition.xz*.74);
+   base=color*(.77+.29*age+density*(.17*barrels+.14*course-.16));
+   n=normalize(mix(n,bumpNormal(n,density*(barrels*.018+course*.008)),step(.2,n.y)));
+   rough=mix(.74,.93,age);
+ } else if(surf.z>=19.5){
   if(foliage&&dot(n,v)<0.0)n=-n;
   if(uSurfaceMaps!=0){
    PBRSurface material;
-   if(surf.z>=39.5){
+   if(surf.z>=39.5&&surf.z<99.5){
     material=biomeSurface(n,surf.z-40.0);
    } else if(abs(layer-16.0)<.5){
     material=birchSurface(n);
@@ -464,6 +478,7 @@ void main(){
   float fall=clamp(uClimate.x*(.64+.48*filteredNoise(worldPosition.xz*.85)),0.0,1.0);
   base=mix(base,vec3(.33,.18,.021)*(.51+.7*base.g),fall);
  }
+
  float nv=max(dot(n,v),.001),nl=max(dot(n,l),0.0),nh=max(dot(n,h),0.0),vh=max(dot(v,h),0.0);
  vec3 f0=mix(vec3(.04),base,metal),F=f0+(1-f0)*pow(1.0-vh,5.0);
  float a=rough*rough,a2=a*a,den=nh*nh*(a2-1)+1;

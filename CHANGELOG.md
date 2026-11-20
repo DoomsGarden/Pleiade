@@ -1,3 +1,12 @@
+# Versión de prueba 0.000.00.014 — vivienda y teja
+
+- Edificación incorpora una casa con cubierta de cuatro aguas, aleros, chimenea y huecos de ventana. Su cubierta usa una malla reutilizable de Pléiade.
+- El material de teja mide las hiladas en metros y filtra el relieve conforme las tejas quedan por debajo de un píxel. La misma malla y material se integraron en las viviendas de Neón de Asfalto 3D.
+
+Se verificaron el visor con Chromium WebGL 2 por software, las pruebas de escritorio y la firma del APK. El rendimiento en tableta queda pendiente. [Captura](tests/results/visual-014/casa-de-teja.jpg)
+
+---
+
 # Versión de prueba 0.000.00.013 — ventanas, vegetación y cuenca
 
 - Los ocho paños de la cabaña se montan en huecos reales del muro y muestran el interior a través de una capa con reflejo del entorno. La veta de la madera mantiene una escala en metros. Edificación incorpora una casa de piedra y un refugio abierto.

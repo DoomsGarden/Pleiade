@@ -4,7 +4,7 @@ import {createWatershed,waterModes,driftSamples,channel,waterBase} from './water
 import {climateAt,seasons,weatherModes} from './climate.js';
 import {moveDetached,plantContact} from './plant_contact.js';
 const $=id=>document.getElementById(id), canvas=$('view');
-const VERSION='0.000.00.013';
+const VERSION='0.000.00.014';
 const params=new URLSearchParams(location.search);
 const state={ready:false,scene:'shore',biome:'forest',waterMode:'lake',underwater:false,buildingForm:'cabin',season:'summer',weather:'clear',quality:window.PleiadeAndroid?'eco':'balanced',materials:true,shadows:true,shadowSoft:true,water:true,ssr:false,contact:false,animation:true,waveStrength:.35,time:0,frames:0,errors:[],fps:0,hdr:false,paused:false};
 window.pleiade={state};
@@ -25,7 +25,7 @@ let camera={target:[-1,0,-2],yaw:.8,pitch:.32,distance:15};
 let activeBiome, drawAnchor, layoutRevision=0, drawnRevision=-1, drawnSignature=0, submittedTriangles=0, needleBundles=0, foliageBundles=0;
 let watershed,shoreObjects,waterFbo,waterDepth,glassGroup;
 let climate=climateAt('summer','clear',0),leafStep=16,detached=null,lastDetachedAge=0,shadowWindStep=-1;
-const buildingNames={cabin:'La cabaña',stone:'El refugio de piedra',shelter:'El pabellón de madera'};
+const buildingNames={cabin:'La cabaña',stone:'El refugio de piedra',shelter:'El pabellón de madera',house:'La casa de teja'};
 const shoreNames={lake:'La orilla',river:'El río',falls:'La cascada'};
 const limits={eco:{size:640,shadow:512,mid:22000,near:0},balanced:{size:960,shadow:1024,mid:28000,near:54000},detail:{size:1280,shadow:2048,mid:41000,near:150000}};
 let lightVP=math.mul(math.ortho(-32,32,-32,32,.1,180),math.look([-45,75,45],[0,0,0]));

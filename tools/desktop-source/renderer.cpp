@@ -1,4 +1,5 @@
 #include "renderer.hpp"
+#include "building_geometry.hpp"
 #include "canopy_layers.hpp"
 #include "material_assets.hpp"
 #include "shaders.hpp"
@@ -287,6 +288,8 @@ Renderer::Renderer(int w, int h, int shadowResolution, bool gpuTiming, const std
         }
     }
     meshes[static_cast<int>(MeshType::Roof)] = makeMesh(vertices, indices);
+    hipRoofMesh(vertices, indices);
+    meshes[static_cast<int>(MeshType::HipRoof)] = makeMesh(vertices, indices);
     // Shared reference meshes: no per-tree vertex buffer duplication.
     auto tri = [&](V3 a, V3 b, V3 c, bool twoSided = false) {
         V3 n = unit(cross(b - a, c - a));

@@ -1,5 +1,6 @@
 #pragma once
 #include "shore.hpp"
+#include "building_geometry.hpp"
 
 namespace pl {
 inline void appendCabin(Scene &scene, bool snowy = false) {
@@ -123,14 +124,39 @@ inline void appendCabin(Scene &scene, bool snowy = false) {
     }
 }
 
-enum class BuildingForm { Cabin, Stone, Shelter };
+enum class BuildingForm { Cabin, Stone, Shelter, House };
 
 inline Scene makeBuildingScene(BuildingForm form=BuildingForm::Cabin) {
     Scene scene(0, false);
     scene.add(MeshType::ShoreGround, {0, 0, 0}, {1, 1, 1}, {.20f, .17f, .10f}, .93f, 0, 4);
     scene.objects.back().half = {24, 3, 24};
     if(form==BuildingForm::Cabin)appendCabin(scene);
-    else {
+    else if(form==BuildingForm::House){
+        const V3 lime{.77f,.68f,.51f}, rim{.57f,.56f,.49f};
+        auto wall=[&](V3 p,V3 size){
+            scene.add(MeshType::BeveledBox,p,size,lime,.9f,0,materialPattern(SurfaceLayer::Masonry));
+        };
+        wall({0,.26f,0},{6.22f,.52f,4.48f});
+        wall({0,1.78f,-2.10f},{6.f,2.53f,.40f});
+        for(float side:{-1.f,1.f}){
+            wall({2.81f*side,1.78f,0},{.38f,2.53f,4.18f});
+            wall({2.57f*side,1.78f,2.10f},{.86f,2.53f,.40f});
+            wall({.88f*side,1.78f,2.10f},{.56f,2.53f,.40f});
+            wall({1.70f*side,.82f,2.10f},{1.10f,.62f,.40f});
+            wall({1.70f*side,2.72f,2.10f},{1.10f,.66f,.40f});
+            scene.add(MeshType::Cube,{1.70f*side,1.78f,2.12f},{1.10f,1.30f,.046f},{.22f,.29f,.26f},.085f,0,18);
+            scene.add(MeshType::BeveledBox,{1.70f*side,1.12f,2.30f},{1.38f,.090f,.59f},rim,.92f,0,materialPattern(SurfaceLayer::Stone));
+            for(float dx:{-.68f,.68f}){
+                const V3 at{1.70f*side+dx,1.79f,2.33f};
+                scene.add(MeshType::BeveledBox,at,{.22f,1.32f,.105f},{.26f,.39f,.30f},.80f,0,materialPattern(SurfaceLayer::Timber));
+            }
+        }
+        wall({0,2.82f,2.10f},{1.20f,.46f,.40f});
+        scene.add(MeshType::BeveledBox,{0,1.55f,2.06f},{1.13f,2.06f,.12f},{.35f,.23f,.14f},.81f,0,materialPattern(SurfaceLayer::Timber));
+        scene.add(MeshType::HipRoof,{0,3.75f,0},{6.70f,1.52f,4.99f},{.365f,.137f,.066f},.87f,0,terracottaMaterial);
+        scene.add(MeshType::BeveledBox,{-.86f,4.12f,-.89f},{.47f,1.38f,.52f},rim,.93f,0,materialPattern(SurfaceLayer::Masonry));
+        scene.add(MeshType::BeveledBox,{0,.18f,2.59f},{1.48f,.31f,.67f},rim,.93f,0,materialPattern(SurfaceLayer::Stone));
+    }else {
         const bool stone=form==BuildingForm::Stone;
         auto piece=[&](V3 at,V3 dimensions,V3 color,SurfaceLayer layer){
             scene.add(MeshType::BeveledBox,at,dimensions,color,.83f,0,materialPattern(layer));

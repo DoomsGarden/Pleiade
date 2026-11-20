@@ -101,8 +101,8 @@ for(const [mode,index] of ['lake','river','falls'].entries()){
 }
 el('dive').onclick();pleiade.render();assert.equal(uniformWrites.get('uUnderwater'),true);
 pleiade.setWaterMode('lake');
-for(const form of ['cabin','stone','shelter']){
- pleiade.setBuildingForm(form);pleiade.render();assert.equal(pleiade.report().glassPanes,form==='cabin'?8:0);
+for(const form of ['cabin','stone','shelter','house']){
+ pleiade.setBuildingForm(form);pleiade.render();assert.equal(pleiade.report().glassPanes,form==='cabin'?8:form==='house'?2:0);
 }
 pleiade.useScene('materials');
 const target=geometry.shore.find(o=>o.section===5&&o.instance[12]>4&&o.instance[13]>2&&o.instance[14]>-8);

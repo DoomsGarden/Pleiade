@@ -51,6 +51,7 @@ enum class MeshType {
     BambooLeavesMid,
     PalmFrondMid,
     FernFrondMid,
+    HipRoof,
     Count
 };
 constexpr int meshCount = static_cast<int>(MeshType::Count);
