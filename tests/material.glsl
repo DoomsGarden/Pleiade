@@ -214,12 +214,15 @@ float visibility(vec3 n){
    // This keeps the filter continuous across texel boundaries with nine reads.
    vec2 tent=max(vec2(0.0),vec2(1.5)-abs(offset-phase));
    float weight=uShadowSoft!=0?tent.x*tent.y:1.0;
-   float receiver=q.z+dot(gradient,centre-q.xy);
+   // Silhouettes and nearly edge-on surfaces can give unstable plane slopes.
+   float receiver=q.z+clamp(dot(gradient,centre-q.xy),-.007,.007);
    float visible=(receiver-bias<=texture(uShadow,centre).r)?1.0:0.0;
    if(any(lessThan(centre,vec2(0.0)))||any(greaterThan(centre,vec2(1.0))))visible=1.0;
    sum+=weight*visible;total+=weight;
  }
- return sum/max(total,.00001);
+ vec2 padding=min(q.xy,1.0-q.xy);
+ float insideMap=smoothstep(0.0,.055,min(padding.x,padding.y));
+ return mix(1.0,sum/max(total,.00001),insideMap);
 }
 
 vec3 sky(vec3 d){return mix(vec3(.12,.15,.18),vec3(.28,.42,.61),clamp(d.y*.5+.5,0.0,1.0));}
@@ -418,15 +421,16 @@ void main(){
   base=mix(base,vec3(.33,.18,.021)*(.51+.7*base.g),fall);
  }
 
+ float sunVisibility=visibility(normalize(normal));
  float nv=max(dot(n,v),.001),nl=max(dot(n,l),0.0),nh=max(dot(n,h),0.0),vh=max(dot(v,h),0.0);
  vec3 f0=mix(vec3(.04),base,metal),F=f0+(1.0-f0)*pow(1.0-vh,5.0);
  float a=rough*rough,a2=a*a,den=nh*nh*(a2-1.0)+1.0;
  float D=a2/max(PI*den*den,.00001),k=(rough+1.0)*(rough+1.0)/8.0;
  float G=(nv/(nv*(1.0-k)+k))*(nl/(nl*(1.0-k)+k));
  vec3 spec=D*G*F/max(4.0*nv*nl,.001);
- vec3 direct=((1.0-F)*(1.0-metal)*base/PI+spec)*uLightColor*nl*visibility(n);
+ vec3 direct=((1.0-F)*(1.0-metal)*base/PI+spec)*uLightColor*nl*sunVisibility;
  if(foliage||(surf.z>6.5&&surf.z<8.5))
-   direct+=base*uLightColor*vec3(.08,.10,.06)*pow(max(dot(-n,l),0.0),2.0)*visibility(n);
+   direct+=base*uLightColor*vec3(.08,.10,.06)*pow(max(dot(-n,l),0.0),2.0)*sunVisibility;
  // Analytic environment approximation: no captured reflections or global illumination yet.
  vec3 env=sky(reflect(-v,n));vec3 ambient=(1.0-metal)*base*mix(vec3(.07,.085,.09),vec3(.20,.24,.29),n.y*.5+.5)+env*f0*(1.0-.6*rough);
  if(abs(surf.z-18.0)<.1){
@@ -438,7 +442,7 @@ void main(){
    vec3 glazed=mix(vec3(.074,.082,.067)*mix(.12,1.0,uDaylight),atmosphereFog(reflectRay)*mix(.82,2.05,uDaylight),horizon);
    float glint=pow(max(dot(reflectRay,l),0.0),140.0);
    vec3 recess=base*(.27+.35*smoothstep(-.42,.29,panel.y));
-   direct=mix(recess,glazed,mirror)+glint*mirror*vec3(2.0,1.8,1.48)*visibility(n);
+   direct=mix(recess,glazed,mirror)+glint*mirror*vec3(2.0,1.8,1.48)*sunVisibility;
    ambient=vec3(0.0);rough=.085;
  }
  ambient*=uSkyAmbient;

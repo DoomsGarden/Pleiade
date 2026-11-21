@@ -268,11 +268,8 @@ vec3 bumpNormal(vec3 n,float height){
  return normalize(abs(det)*n-sign(det)*(dFdx(height)*r1+dFdy(height)*r2));
 }
 float visibility(vec3 n){
- if(uShadows==0)return 1;
- vec4 p=uLightVP*vec4(worldPosition,1);vec3 q=p.xyz/p.w*.5+.5;
- // Different PCF taps see different depths on a sloping receiver. Compare
- // against the receiver plane at each actual nearest-filtered texel centre.
- // Derivatives precede the bounds branch and use geometry, not bump normals.
+ if(uShadows==0)return 1.0;
+ vec4 p=uLightVP*vec4(worldPosition,1.0);vec3 q=p.xyz/p.w*.5+.5;
  vec3 dx=dFdx(q),dy=dFdy(q);
  float determinant=dx.x*dy.y-dx.y*dy.x;
  vec2 gradient=vec2(0.0);
@@ -280,13 +277,24 @@ float visibility(vec3 n){
  if(regular)gradient=vec2(dy.y*dx.z-dx.y*dy.z,dx.x*dy.z-dy.x*dx.z)/determinant;
  if(q.z<0.0||q.z>1.0||any(lessThan(q.xy,vec2(0.0)))||any(greaterThan(q.xy,vec2(1.0))))return 1.0;
  float bias=regular?.000005:max(.0004*(1.0-dot(n,lightDirection)),.00012);
- float sum=0.0;vec2 size=vec2(textureSize(uShadow,0));
+ vec2 size=vec2(textureSize(uShadow,0)),base=floor(q.xy*size);
+ vec2 phase=q.xy*size-base-.5;
+ float sum=0.0,total=0.0;
  for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){
-   vec2 centre=(floor(q.xy*size)+vec2(x,y)+.5)/size;
-   float receiver=q.z+dot(gradient,centre-q.xy);
-   sum+=(receiver-bias<=texture(uShadow,centre).r)?1.0:0.0;
+   vec2 offset=vec2(float(x),float(y)),centre=(base+offset+.5)/size;
+   // The outer weight vanishes before the 3x3 neighbourhood changes.
+   // This keeps the filter continuous across texel boundaries with nine reads.
+   vec2 tent=max(vec2(0.0),vec2(1.5)-abs(offset-phase));
+   float weight=tent.x*tent.y;
+   // Silhouettes and nearly edge-on surfaces can give unstable plane slopes.
+   float receiver=q.z+clamp(dot(gradient,centre-q.xy),-.007,.007);
+   float visible=(receiver-bias<=texture(uShadow,centre).r)?1.0:0.0;
+   if(any(lessThan(centre,vec2(0.0)))||any(greaterThan(centre,vec2(1.0))))visible=1.0;
+   sum+=weight*visible;total+=weight;
  }
- return sum/9.0;
+ vec2 padding=min(q.xy,1.0-q.xy);
+ float insideMap=smoothstep(0.0,.055,min(padding.x,padding.y));
+ return mix(1.0,sum/max(total,.00001),insideMap);
 }
 vec3 sky(vec3 d){return mix(vec3(.12,.15,.18),vec3(.28,.42,.61),clamp(d.y*.5+.5,0.0,1.0));}
 PBRSurface biomeSurface(vec3 n,float layer){
@@ -479,15 +487,16 @@ void main(){
   base=mix(base,vec3(.33,.18,.021)*(.51+.7*base.g),fall);
  }
 
+ float sunVisibility=visibility(normalize(normal));
  float nv=max(dot(n,v),.001),nl=max(dot(n,l),0.0),nh=max(dot(n,h),0.0),vh=max(dot(v,h),0.0);
  vec3 f0=mix(vec3(.04),base,metal),F=f0+(1-f0)*pow(1.0-vh,5.0);
  float a=rough*rough,a2=a*a,den=nh*nh*(a2-1)+1;
  float D=a2/max(PI*den*den,.00001),k=(rough+1)*(rough+1)/8;
  float G=(nv/(nv*(1-k)+k))*(nl/(nl*(1-k)+k));
  vec3 spec=D*G*F/max(4*nv*nl,.001);
- vec3 direct=((1-F)*(1-metal)*base/PI+spec)*vec3(4.4,3.95,3.2)*nl*visibility(n);
+ vec3 direct=((1-F)*(1-metal)*base/PI+spec)*vec3(4.4,3.95,3.2)*nl*sunVisibility;
  if(foliage||(surf.z>6.5&&surf.z<8.5))
-   direct+=base*vec3(.35,.40,.20)*pow(max(dot(-n,l),0.0),2.0)*visibility(n);
+   direct+=base*vec3(.35,.40,.20)*pow(max(dot(-n,l),0.0),2.0)*sunVisibility;
  // Analytic environment approximation: no captured reflections or global illumination yet.
  vec3 env=sky(reflect(-v,n));vec3 ambient=(1-metal)*base*mix(vec3(.07,.085,.09),vec3(.20,.24,.29),n.y*.5+.5)+env*f0*(1-.6*rough);
  if(abs(surf.z-18.0)<.1){
@@ -499,7 +508,7 @@ void main(){
    vec3 glazed=mix(vec3(.074,.082,.067),sky(reflectRay)*2.05,horizon);
    float glint=pow(max(dot(reflectRay,l),0.0),140.0);
    vec3 recess=base*(.27+.35*smoothstep(-.42,.29,panel.y));
-   direct=mix(recess,glazed,mirror)+glint*mirror*vec3(2.0,1.8,1.48)*visibility(n);
+   direct=mix(recess,glazed,mirror)+glint*mirror*vec3(2.0,1.8,1.48)*sunVisibility;
    ambient=vec3(0.0);rough=.085;
  }
  float fog=1-exp(-length(uEye-worldPosition)*uFogDensity);
@@ -535,11 +544,12 @@ float ambientContact(vec2 p){
  if(uContact==0||d>=.999999)return 1.0;
  vec3 origin=viewPosition(p,d),normal=normalize(texture(uNormal,p).xyz);
  // World-space radius, deterministic samples: no animated noise or temporal history.
- float radius=1.25,occlusion=0.0;
- vec2 projected=radius*uProjectionScale/(2.0*max(-origin.z,.1));
+ float occlusion=0.0;
  for(int i=0;i<12;i++){
    float t=float(i)+.5,angle=t*2.39996323;
-   vec2 q=p+vec2(cos(angle),sin(angle))*sqrt(t/12.0)*projected;
+   float radius=t<6.0 ? .38 : 1.25;
+   vec2 projected=radius*uProjectionScale/(2.0*max(-origin.z,.1));
+   vec2 q=p+vec2(cos(angle),sin(angle))*sqrt((mod(float(i),6.0)+.5)/6.0)*projected;
    if(any(lessThan(q,vec2(0.0)))||any(greaterThan(q,vec2(1.0))))continue;
    float sd=texture(uDepth,q).r;if(sd>=.999999)continue;
    vec3 delta=viewPosition(q,sd)-origin;float dist=length(delta);

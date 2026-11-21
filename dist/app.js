@@ -4,7 +4,7 @@ import {createWatershed,waterModes,driftSamples,channel,waterBase} from './water
 import {climateAt,seasons,weatherModes} from './climate.js';
 import {moveDetached,plantContact} from './plant_contact.js';
 const $=id=>document.getElementById(id), canvas=$('view');
-const VERSION='0.000.00.014';
+const VERSION='0.000.00.015';
 const params=new URLSearchParams(location.search);
 const state={ready:false,scene:'shore',biome:'forest',waterMode:'lake',underwater:false,buildingForm:'cabin',season:'summer',weather:'clear',quality:window.PleiadeAndroid?'eco':'balanced',materials:true,shadows:true,shadowSoft:true,water:true,ssr:false,contact:false,animation:true,waveStrength:.35,time:0,frames:0,errors:[],fps:0,hdr:false,paused:false};
 window.pleiade={state};

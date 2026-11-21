@@ -20,11 +20,12 @@ float ambientContact(vec2 p){
  if(uContact==0||d>=.999999)return 1.0;
  vec3 origin=viewPosition(p,d),normal=normalize(texture(uNormal,p).xyz);
  // World-space radius, deterministic samples: no animated noise or temporal history.
- float radius=1.25,occlusion=0.0;
- vec2 projected=radius*uProjectionScale/(2.0*max(-origin.z,.1));
+ float occlusion=0.0;
  for(int i=0;i<12;i++){
    float t=float(i)+.5,angle=t*2.39996323;
-   vec2 q=p+vec2(cos(angle),sin(angle))*sqrt(t/12.0)*projected;
+   float radius=t<6.0 ? .38 : 1.25;
+   vec2 projected=radius*uProjectionScale/(2.0*max(-origin.z,.1));
+   vec2 q=p+vec2(cos(angle),sin(angle))*sqrt((mod(float(i),6.0)+.5)/6.0)*projected;
    if(any(lessThan(q,vec2(0.0)))||any(greaterThan(q,vec2(1.0))))continue;
    float sd=texture(uDepth,q).r;if(sd>=.999999)continue;
    vec3 delta=viewPosition(q,sd)-origin;float dist=length(delta);

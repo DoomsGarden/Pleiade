@@ -1,3 +1,12 @@
+# Versión de prueba 0.000.00.015 — sombras y contacto
+
+- El filtro de sombras de nueve lecturas limita la corrección en superficies rasantes y funde el borde de cobertura. El renderer nativo usa pesos continuos en los bordes de texel y la normal geométrica para evaluar la sombra de la luz solar.
+- La cámara estratégica nativa concentra el mapa en el área de juego y conserva la contribución de los objetos próximos fuera de pantalla. La oclusión de contacto reparte sus muestras en dos distancias para alcanzar los detalles pequeños y los objetos cercanos.
+
+Se han comprobado los shaders y la continuidad del filtro, el visor en Chromium WebGL 2 por software y la compilación de la base C++. Queda pendiente medir el rendimiento en la tablet.
+
+---
+
 # Versión de prueba 0.000.00.014 — vivienda y teja
 
 - Edificación incorpora una casa con cubierta de cuatro aguas, aleros, chimenea y huecos de ventana. Su cubierta usa una malla reutilizable de Pléiade.

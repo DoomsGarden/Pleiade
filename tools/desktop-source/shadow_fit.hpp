@@ -45,7 +45,18 @@ inline M4 strategyShadowVP(const Scene &scene, const Camera &camera, float aspec
         c.y = 0;
         return ortho(-85, 85, -85, 85, .1f, 250) * lookAt(c + V3{-60, 100, 60}, c);
     }
+    // Deep perspective views can include a distant block or hillside.
+    // Spend the map on the camera's playable area and fade its outer edge
+    // in the receiver shader. Nearby off-screen casters still use its depth.
+    const V3 at=camera.target;
+    const V4 focus=light*V4{at.x,at.y,at.z,1};
+    const float spanX=camera.distance*std::max(1.20f,aspect*.82f)+5.f;
+    const float spanY=camera.distance*1.04f+6.f;
+    loX=std::max(loX,focus.x-spanX);hiX=std::min(hiX,focus.x+spanX);
+    loY=std::max(loY,focus.y-spanY);hiY=std::min(hiY,focus.y+spanY);
     // Reserve PCF/bounds margin, quantize size, and snap center to shadow texels.
+    if(hiX<loX){loX=focus.x-spanX;hiX=focus.x+spanX;}
+    if(hiY<loY){loY=focus.y-spanY;hiY=focus.y+spanY;}
     float extentX = std::ceil((hiX - loX + 4) / 4) * 4;
     float extentY = std::ceil((hiY - loY + 4) / 4) * 4;
     float texelX = extentX / resolution, texelY = extentY / resolution;
