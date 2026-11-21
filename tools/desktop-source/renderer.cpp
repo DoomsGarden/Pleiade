@@ -710,10 +710,10 @@ RenderStats Renderer::render(const Scene &scene, const Camera &camera, bool cull
             if(midVegetation==fullMesh){
                 if(pixels<9)mesh=farVegetation;
             }else if(pixels<64){
-                const bool near=pixels>=31;
-                const MeshType incoming=near?fullMesh:midVegetation;
-                mesh=near?midVegetation:farVegetation;
-                const float weight=near?std::clamp((pixels-38.f)/26.f,0.f,1.f)
+                const bool detailedRange=pixels>=31;
+                const MeshType incoming=detailedRange?fullMesh:midVegetation;
+                mesh=detailedRange?midVegetation:farVegetation;
+                const float weight=detailedRange?std::clamp((pixels-38.f)/26.f,0.f,1.f)
                                        :std::clamp((pixels-12.f)/19.f,0.f,1.f);
                 if(weight>0&&weight<1){
                     auto transition=instance;
