@@ -588,7 +588,14 @@ RenderStats Renderer::render(const Scene &scene, const Camera &camera, bool cull
         Frustum sf(lightVP);
         for (auto &o : scene.objects) {
             if (!o.visible || o.lodClass == 2 || !sf.visible(o.center, o.half)) continue;
-            const auto mesh = lod && surfaceTextures[0] ? vegetationFarMesh(o.mesh) : o.mesh;
+            auto mesh=o.mesh;
+            if(lod&&surfaceTextures[0]&&vegetationFarMesh(mesh)!=mesh){
+                const auto mid=vegetationMiddleMesh(mesh);
+                const float px=canopyPixels(camera,float(height),o.center,o.half*2);
+                if(mid==mesh)mesh=px<9?vegetationFarMesh(mesh):mesh;
+                else if(px<24)mesh=vegetationFarMesh(mesh);
+                else if(px<54)mesh=mid;
+            }
             Instance part = o.gpu;
             part.surface.z = foliageMaterialForMesh(mesh, part.surface.z);
             visible[static_cast<int>(mesh)].push_back(part);
@@ -694,16 +701,31 @@ RenderStats Renderer::render(const Scene &scene, const Camera &camera, bool cull
             mesh = o.mesh == MeshType::Leaves ? MeshType::LeavesFar : MeshType::FoliageFar;
             ++stats.lodFar;
         }
-        const MeshType farVegetation = vegetationFarMesh(mesh);
-        if (lod && surfaceTextures[0] && mesh != farVegetation) {
-            const float pixels = canopyPixels(camera, float(height), o.center, o.half * 2);
-            if (pixels < 94) {
-                mesh = farVegetation;
-                ++stats.lodFar;
+        const MeshType fullMesh=mesh;
+        const MeshType farVegetation=vegetationFarMesh(fullMesh);
+        const MeshType midVegetation=vegetationMiddleMesh(fullMesh);
+        Instance instance=o.gpu;
+        if(lod&&surfaceTextures[0]&&fullMesh!=farVegetation){
+            const float pixels=canopyPixels(camera,float(height),o.center,o.half*2);
+            if(midVegetation==fullMesh){
+                if(pixels<9)mesh=farVegetation;
+            }else if(pixels<64){
+                const bool near=pixels>=31;
+                const MeshType incoming=near?fullMesh:midVegetation;
+                mesh=near?midVegetation:farVegetation;
+                const float weight=near?std::clamp((pixels-38.f)/26.f,0.f,1.f)
+                                       :std::clamp((pixels-12.f)/19.f,0.f,1.f);
+                if(weight>0&&weight<1){
+                    auto transition=instance;
+                    transition.color.w=weight;
+                    transition.surface.z=foliageMaterialForMesh(incoming,transition.surface.z);
+                    visible[static_cast<int>(incoming)].push_back(transition);
+                    instance.color.w=-weight;
+                }
             }
+            if(mesh!=fullMesh)++stats.lodFar;
         }
-        Instance instance = o.gpu;
-        instance.surface.z = foliageMaterialForMesh(mesh, instance.surface.z);
+        instance.surface.z=foliageMaterialForMesh(mesh,instance.surface.z);
         if (materials && o.mesh == MeshType::Branch && instance.surface.z == 5 && instance.surface.w == 0)
             instance.surface.w = -1;
         if (materials && scene.materialShowcase && o.mesh == MeshType::Rock)

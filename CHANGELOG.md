@@ -1,3 +1,13 @@
+# Versión de prueba 0.000.00.016 — corriente, precipitación y copas
+
+- Las ondas tienen un reloj propio. La corriente, la nieve, la lluvia y las ramas desprendidas siguen su curso aunque desactives la ondulación.
+- Las piedras, raíces y ramas que cortan la superficie generan ondas locales. La espuma aumenta con la intensidad y la cascada acumula agua aireada al pie de la caída. El efecto usa el perfil del cauce y los objetos que intersectan la superficie.
+- Las copas pasan antes a la geometría intermedia y mezclan los cambios según su tamaño proyectado. El renderer C++ aplica tres niveles en primera persona y en vista estratégica.
+
+Se comprobó el cambio entre fotogramas de río, cascada, nieve y lluvia en Chromium WebGL 2 por software. También pasaron las pruebas de estados del visor y la base C++. Queda pendiente el rendimiento en el dispositivo.
+
+---
+
 # Versión de prueba 0.000.00.015 — sombras y contacto
 
 - El filtro de sombras de nueve lecturas limita la corrección en superficies rasantes y funde el borde de cobertura. El renderer nativo usa pesos continuos en los bordes de texel y la normal geométrica para evaluar la sombra de la luz solar.

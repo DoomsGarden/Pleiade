@@ -11,7 +11,7 @@ const constants=new Map();const mk=()=>({id:++id});const methods={NO_ERROR:0,
  createProgram:()=>({...mk(),samplers:new Map(),shaders:[]}),createShader:()=>mk(),shaderSource:(s,source)=>s.source=source,attachShader:(p,s)=>p.shaders.push(s),
  linkProgram:p=>{for(const s of p.shaders)for(const m of s.source.matchAll(/uniform sampler2D(?:Array)? (\w+)/g))p.samplers.set(m[1],0);},getShaderParameter:()=>true,getProgramParameter:()=>true,
  getUniformLocation:(p,n)=>({p,n}),uniform1i:(l,v)=>{uniformWrites.set(l.n,v);if(l.p.samplers.has(l.n))l.p.samplers.set(l.n,v);},
- uniform1f:(l,v)=>{assert(Number.isFinite(v));uniformWrites.set(l.n,v);},uniform3fv:(l,v)=>{assert(v.length===(l.n==='uDrift[0]'?30:3)&&Array.from(v).every(Number.isFinite));uniformWrites.set(l.n,[...v]);},
+ uniform1f:(l,v)=>{assert(Number.isFinite(v));uniformWrites.set(l.n,v);},uniform3fv:(l,v)=>{assert((l.n==='uWaterContacts[0]'?v.length%3===0:v.length===(l.n==='uDrift[0]'?30:3))&&Array.from(v).every(Number.isFinite));uniformWrites.set(l.n,[...v]);},
  uniformMatrix4fv:(_,__,m)=>assert(m.length===16&&Array.from(m).every(Number.isFinite),'finite matrix'),
  useProgram:p=>currentProgram=p,drawElementsInstanced:(_,count,__,___,n)=>{assert(count>0&&n>0);draw();},drawArrays:()=>draw(),drawElements:()=>draw(),
  getParameter:p=>p===gl.VERSION?'MOCK (not a GPU)':4096,getError:()=>0,isContextLost:()=>false,getExtension:()=>({}),checkFramebufferStatus:()=>gl.FRAMEBUFFER_COMPLETE,
@@ -21,7 +21,7 @@ const gl=new Proxy(methods,{get(t,p){if(p in t)return t[p];if(/^[A-Z_0-9]+$/.tes
 const elements=new Map();function el(id){if(!elements.has(id))elements.set(id,{id,hidden:false,checked:true,value:'balanced',width:0,height:0,textContent:'',dataset:{},listeners:{},style:{},classList:{toggle(){}},setAttribute(){},querySelector(){return el('child-'+id)},addEventListener(n,f){this.listeners[n]=f},getContext(){return gl},setPointerCapture(){}});return elements.get(id);}
 const buttons=['shore','materials','building','biomes'].map(name=>{const b=el(name);b.dataset.scene=name;return b;});
 globalThis.document={hidden:false,getElementById:el,querySelectorAll:()=>buttons,addEventListener(){}};
-globalThis.window=globalThis;globalThis.innerWidth=1200;globalThis.innerHeight=800;globalThis.devicePixelRatio=2;globalThis.location={search:''};globalThis.addEventListener=()=>{};globalThis.requestAnimationFrame=()=>1;globalThis.cancelAnimationFrame=()=>{};
+globalThis.window=globalThis;globalThis.innerWidth=1200;globalThis.innerHeight=800;globalThis.devicePixelRatio=2;globalThis.location={search:''};globalThis.addEventListener=()=>{};let nextFrame;globalThis.requestAnimationFrame=callback=>{nextFrame=callback;return 1;};globalThis.cancelAnimationFrame=()=>{};
 const androidFiles=[];
 const androidMock=process.env.PLEIADE_ANDROID_MOCK==='1';
 let openedWorld=false;
@@ -36,6 +36,20 @@ globalThis.fetch=async path=>{const b=await fs.readFile(new URL('../dist/'+path,
 await import('../dist/app.js');
 for(let i=0;i<100&&!globalThis.pleiade.state.ready;i++)await new Promise(r=>setTimeout(r,10));
 assert(pleiade.state.ready,JSON.stringify(pleiade.state.errors));
+// The wave switch must never freeze either precipitation or river transport.
+pleiade.setWaterMode('river');pleiade.setClimate('winter','snow');
+el('animation').checked=false;el('animation').onchange();
+assert(pleiade.report().shore.contacts>=2);
+nextFrame(100);const frozenWave=uniformWrites.get('uWaterTime');
+const beforeDrift=uniformWrites.get('uDrift[0]'),beforeFall=uniformWrites.get('uTime');
+nextFrame(150);
+assert.equal(uniformWrites.get('uWaterTime'),frozenWave);
+assert.notDeepEqual(uniformWrites.get('uDrift[0]'),beforeDrift);
+assert(uniformWrites.get('uTime')>beforeFall);
+assert(uniformWrites.get('uFlowTime')>0);
+el('animation').checked=true;el('animation').onchange();nextFrame(200);
+assert(uniformWrites.get('uWaterTime')>frozenWave);
+pleiade.setWaterMode('lake');pleiade.setClimate('summer','clear');
 if(androidMock){
  assert.equal(pleiade.state.quality,'eco');
  el('import-world').onclick({preventDefault(){}});assert(openedWorld);
@@ -77,7 +91,7 @@ const meshById=new Map(geometry.meshes.map(mesh=>[mesh.id,mesh]));
 const allFar=geometry.shore.filter(part=>part.visible!==false).reduce((sum,part)=>{
  const mesh=meshById.get(part.mesh);return sum+meshById.get(mesh.far??mesh.id).indices/3;
 },0);
-assert(ecoRender.trianglesPerPass<=allFar+22000,'eco respects the additional foliage transition budget');
+assert(ecoRender.trianglesPerPass<=allFar+39000,'eco respects the additional foliage transition budget');
 assert(ecoRender.trianglesPerPass<balancedTriangles&&ecoRender.needleBundles>0,'eco keeps individual nearby needles with fewer triangles');
 assert.equal(pleiade.camera,inspectionCamera,'quality changes preserve the viewing position');
 Object.assign(globalThis,{innerWidth:412,innerHeight:915,devicePixelRatio:2.625});

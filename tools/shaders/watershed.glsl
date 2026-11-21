@@ -1,6 +1,9 @@
 uniform sampler2D uWaterDepth;
 uniform vec3 uDrift[10];
 uniform int uUnderwater;
+uniform float uFlowTime;
+uniform vec3 uWaterContacts[10];
+uniform int uContactCount;
 bool waterSurface(vec2 screen,out vec3 result,out float coverage){
  if(uWater==0)return false;
  float depth=texture(uDepth,screen).r, surfaceDepth=texture(uWaterDepth,screen).r;
@@ -13,6 +16,21 @@ bool waterSurface(vec2 screen,out vec3 result,out float coverage){
   slope+=3.65*6.0*s*(1.0-s)/4.2;
  }
  vec3 wave=waveField(point.xz);
+ float contactFoam=0.0;
+ for(int i=0;i<10;i++){
+  if(i>=uContactCount)break;
+  vec3 obstacle=uWaterContacts[i];
+  vec2 delta=point.xz-obstacle.xy;
+  if(uWaterMode!=0)delta.y*=delta.y<0.0?.71:1.35;
+  float radius=length(delta),edge=radius-obstacle.z;
+  float spread=exp(-max(0.0,edge)*2.3)*smoothstep(-.10,.09,edge);
+  float phase=21.0*edge-uFlowTime*5.2+float(i)*2.31;
+  float breakup=sin(delta.x*52.0+delta.y*27.0+uFlowTime*3.0)*.18;
+  float energy=max(uWaveStrength,uWaterMode==0?0.0:.38);
+  wave.yz+=normalize(delta+vec2(.00001))*.095*energy*spread*cos(phase);
+  float crest=smoothstep(.52,.88,sin(phase)+breakup);
+  contactFoam=max(contactFoam,spread*crest*energy*.63);
+ }
  vec3 n=normalize(vec3(-wave.y,1.0,-slope-wave.z)),v=normalize(uCameraEye-point);
  bool below=dot(v,n)<0.0;
  if(below)n=-n;
@@ -38,12 +56,24 @@ bool waterSurface(vec2 screen,out vec3 result,out float coverage){
  float nt=max(dot(n,h),0.0);
  float glint=pow(nt,mix(560.0,160.0,uWaveStrength))*.68
              +pow(nt,mix(140.0,38.0,uWaveStrength))*.085;
- float foam=0.0;
+ float foam=contactFoam;
  if(uWaterMode!=0&&!below){
   vec2 uv=vec2(point.x-channelCenter(point.z),point.z);
-  float phase=uv.y*7.1+uWaterTime*(uWaterMode==2?8.5:4.9)+1.45*sin(uv.x*8.0+uv.y*.61);
-  float cascade=smoothstep(.23,.7,slope);
-  foam=cascade*(.15+.42*smoothstep(.30,.92,sin(phase)*sin(uv.x*6.4+phase*.42)));
+  // Foam advects in channel space even with the free-surface waves disabled.
+  float cascade=smoothstep(.18,.66,slope);
+  float downstream=uv.y+uFlowTime*mix(1.35,3.7,cascade);
+  float stream=sin(uv.x*18.0+sin(downstream*.73)*1.7)
+               +.59*sin(uv.x*33.0-downstream*1.45)+.36*sin(downstream*11.0+uv.x*3.0);
+  float feather=max(.11,fwidth(stream)*.67);
+  float whitewater=smoothstep(.8-feather,1.29+feather,stream);
+  float bubbles=.045*smoothstep(.47,.8,sin(downstream*3.4+sin(uv.x*6.3)));
+  foam=max(foam,bubbles+cascade*(.09+.53*whitewater));
+  if(uWaterMode==2){
+   float fallDistance=(uv.y+2.85)/1.33;
+   float foot=exp(-fallDistance*fallDistance)*(1.0-smoothstep(1.0,4.3,abs(uv.x)));
+   float agitation=sin(uv.x*27.0+cos(downstream*13.0))+sin(downstream*17.0-uv.x*6.2);
+   foam=max(foam,foot*(.32+.54*smoothstep(-.43,1.15,agitation)));
+  }
   for(int i=0;i<10;i++){
    vec2 d=point.xz-uDrift[i].xz;
    foam=max(foam,.42*(1.0-smoothstep(.18,1.0,length(d*vec2(5.6,2.05)))));
