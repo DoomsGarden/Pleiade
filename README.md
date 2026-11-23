@@ -2,9 +2,9 @@
 
 Pléiade es un motor gráfico propio. Este repositorio conserva el visor WebGL 2, su paquete Android y la fuente C++ recuperada de la base PC.
 
-## Android `0.000.00.016`
+## Android `0.000.00.017`
 
-La APK de prueba incluye el visor y los recursos para usarlo sin conexión. Arranca en modo Ahorro. Requiere Android 7 o posterior y un WebView actualizado con WebGL 2. [Descargar desde GitHub Releases](https://github.com/DoomsGarden/Pleiade/releases/tag/v0.000.00.016)
+La APK de prueba incluye el visor y los recursos para usarlo sin conexión. Arranca en modo Ahorro. Requiere Android 7 o posterior y un WebView actualizado con WebGL 2. [Descargar desde GitHub Releases](https://github.com/DoomsGarden/Pleiade/releases/tag/v0.000.00.017)
 
 - **Orilla** permite explorar una cuenca de 104 m de lado en modo lago, río o cascada. En **Ajustes → Mirar bajo el agua** se puede inspeccionar el fondo.
 - **Edificación** permite alternar entre la cabaña, la casa de teja, el refugio de piedra y el pabellón abierto. **Biomas** abre cinco paisajes que se regeneran con la semilla del mundo.

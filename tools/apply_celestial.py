@@ -59,7 +59,7 @@ void main(){
 shader_dir=p/'tools/shaders'
 waves=(shader_dir/'waves.glsl').read_text()
 webgl='#version 300 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler2D;\n'
-s['waterVertex']=webgl+waves+(shader_dir/'water_vertex.glsl').read_text()
+s['waterVertex']=webgl+lake_waves+waves+(shader_dir/'water_vertex.glsl').read_text()
 s['depthOnly']=webgl+'void main(){}\n'
 s['glass']=webgl+(shader_dir/'glass.glsl').read_text()
 s['weatherVertex']=webgl+(shader_dir/'weather_vertex.glsl').read_text()

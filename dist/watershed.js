@@ -8,6 +8,10 @@ export function channel(z){
     return -3.3 + 3.1*Math.sin(z*.056) + 1.3*Math.sin(z*.133+.9);
 }
 
+export function lakeBank(z){
+    return 1.60*Math.sin(z*.091)+.68*Math.sin(z*.19);
+}
+
 export function waterBase(mode,z){
     if(mode==='lake')return 0;
     return .44+z*.010+(mode==='falls'?3.65*smooth((z+2.5)/4.2):0);
@@ -19,7 +23,7 @@ function bedProfile(mode,seed){
         const rough=.18*Math.sin(x*.39+z*.27+grain)*Math.sin(z*.44-x*.41);
         const hills=.83*Math.sin(x*.097+grain)*Math.sin(z*.111)+.48*Math.sin(z*.074-x*.081);
         if(mode==='lake'){
-            const inland=x-1.60*Math.sin(z*.091)-.68*Math.sin(z*.19);
+            const inland=x-lakeBank(z);
             return .075*inland + smooth(inland/7)*hills + rough*.64;
         }
         const offset=Math.abs(x-channel(z));
@@ -45,7 +49,7 @@ function mesh(columns, rows, sample){
 export function createWatershed(mode,seed){
     if(!waterModes.includes(mode))throw new RangeError('Cuenca desconocida');
     const profile=bedProfile(mode,seed);
-    const cells=144,step=2*extent/cells;
+    const cells=144;
     const land=mesh(cells,cells,(u,v)=>{
         const x=(u*2-1)*extent,z=(v*2-1)*extent,d=.24;
         const dx=(profile(x+d,z)-profile(x-d,z))/(2*d),dz=(profile(x,z+d)-profile(x,z-d))/(2*d);
@@ -61,9 +65,22 @@ export function createWatershed(mode,seed){
         return du+dv<=1 ? p[a]*(1-du-dv)+p[a+8]*du+p[b]*dv :
             p[b+8]*(du+dv-1)+p[a+8]*(1-dv)+p[b]*(1-du);
     }
-    const water=mesh(mode==='lake'?66:16,208,(u,v)=>{
-        const z=2*extent*v-extent;
-        const x=mode==='lake'?mix(-extent,5.0,u):channel(z)+(2*u-1)*4.52;
+    const water=mesh(mode==='lake'?100:22,208,(u,v)=>{
+        let z=2*extent*v-extent;
+        if(mode==='falls'){
+            // Concentrate rows where the surface bends over the lip.
+            z=v<.38?mix(-extent,-5,v/.38):
+                v<.62?mix(-5,4,(v-.38)/.24):mix(4,extent,(v-.62)/.38);
+        }
+        let x;
+        if(mode==='lake'){
+            // Keep a dense strip across the curved shoreline and a coarser
+            // grid on the far side. The strip extends past the wet ground.
+            const bank=lakeBank(z);
+            x=u<.59?mix(-extent,bank-7.0,u/.59):mix(bank-7.0,bank+3.5,(u-.59)/.41);
+        }else{
+            x=channel(z)+(2*u-1)*4.52;
+        }
         return [x,waterBase(mode,z),z,0,1,0,u,v];
     });
     return {land,water,height,area:extent*2};

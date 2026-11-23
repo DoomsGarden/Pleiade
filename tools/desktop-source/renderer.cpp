@@ -10,6 +10,7 @@
 #include "visibility.hpp"
 #include <chrono>
 #include <cstddef>
+#include <cstring>
 #include <fstream>
 
 namespace pl {
@@ -21,7 +22,16 @@ static double renderMs(RenderClock::time_point a, RenderClock::time_point b) {
 GLuint Renderer::program(const char *vs, const char *fs) {
     auto compile = [&](GLenum type, const char *code) {
         GLuint s = gl.CreateShader(type);
-        gl.ShaderSource(s, 1, &code, nullptr);
+        std::string expanded(code);
+        const auto include=[&](const char *marker,const char *source){
+            const auto at=expanded.find(marker);
+            if(at!=std::string::npos)expanded.replace(at,std::strlen(marker),source);
+        };
+        include("// INCLUDE_LAKE_WAVES",shader::lakeWaves);
+        include("// INCLUDE_WATER_FOAM",shader::foamShading);
+        include("WEB_SHORE","false");
+        const char *text=expanded.c_str();
+        gl.ShaderSource(s, 1, &text, nullptr);
         gl.CompileShader(s);
         GLint ok = 0;
         gl.GetShaderiv(s, GL_COMPILE_STATUS, &ok);

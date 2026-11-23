@@ -243,6 +243,49 @@ PBRSurface biomeSurface(vec3 n,float layer){
  return blendSurface(surfaceMap,bakedSurface(ground*.325,11.0,n),
    smoothstep(.52,.72,patches)*.48+(1.0-smoothstep(.54,.81,n.y))*.46);
 }
+
+// Coast coordinates in metres. The WebGL basin bends along z; the native demo
+// has a different shoreline profile. Positive x leads toward dry ground.
+vec2 shoreCoordinates(vec2 p,bool curved){
+ float bank=curved?1.60*sin(p.y*.091)+.68*sin(p.y*.19)
+                  :-(.12*sin(p.y*.15)+.02*sin(p.y*.4))/.08;
+ return vec2(p.x-bank,p.y);
+}
+float shoreBankSlope(float z,bool curved){
+ return curved?.1456*cos(z*.091)+.1292*cos(z*.19)
+               :-(.018*cos(z*.15)+.008*cos(z*.4))/.08;
+}
+float shoreShallow(float x){
+ return 1.0/(1.0+exp(clamp(-.44*(x+2.35),-24.0,24.0)));
+}
+float swellPhase(vec2 q,float time){
+ // Raising the spatial frequency in shallow water slows the advancing crest.
+ return 1.48*(q.x+4.0*shoreShallow(q.x))+.19*q.y+.54*sin(q.y*.36)-1.86*time;
+}
+vec3 lakeWave(vec2 p,float time,float strength,bool curved){
+ vec2 q=shoreCoordinates(p,curved);
+ float shallow=shoreShallow(q.x), delta=.44*shallow*(1.0-shallow);
+ float phase=swellPhase(q,time);
+ float secondary=2.82*(q.x+1.8*shallow)-.51*q.y-2.91*time+.77;
+ float capillary=5.3*q.x+.98*q.y-3.75*time;
+ float group=q.y*.48+q.x*.29-time*.39;
+ float envelope=.83+.17*cos(group);
+ float base=.045+.025*shallow;
+ float amplitude=base*envelope;
+ float height=amplitude*sin(phase)+.017*sin(secondary)+.0035*sin(capillary);
+ float dx=(.025*delta*envelope-base*.0493*sin(group))*sin(phase)+amplitude*1.48*(1.0+4.0*delta)*cos(phase)
+          +.017*2.82*(1.0+1.8*delta)*cos(secondary)+.01855*cos(capillary);
+ float dz=amplitude*(.19+.1944*cos(q.y*.36))*cos(phase)-base*.0816*sin(group)*sin(phase)
+          -.00867*cos(secondary)+.00343*cos(capillary);
+ return strength*vec3(height,dx,dz-shoreBankSlope(p.y,curved)*dx);
+}
+float recentShoreWater(vec2 p,float time,float strength,bool curved){
+ float now=lakeWave(p,time,strength,curved).x;
+ float last=lakeWave(p,max(0.0,time-.36),strength,curved).x-.018;
+ float prior=lakeWave(p,max(0.0,time-.78),strength,curved).x-.042;
+ return max(now,max(last,prior));
+}
+
 uniform vec3 uLightColor;
 uniform float uSkyAmbient;
 uniform float uDaylight;
@@ -405,8 +448,10 @@ void main(){
    base*=1.0-.23*max(line.x,line.y);
  }
  if(uWet!=0&&surf.z>3.5&&surf.z<4.5){
-  float level=uWaveStrength*(.025*sin(worldPosition.x*.7+worldPosition.z*.35+uWetTime*1.1)+.012*sin(worldPosition.z*1.1-worldPosition.x*.2-uWetTime*.8));
-  float wet=1.0-smoothstep(.025,.24,worldPosition.y-level);
+  float level=0.0;
+  if(abs(worldPosition.y)<.36)
+    level=recentShoreWater(worldPosition.xz,uWetTime,uWaveStrength,true);
+  float wet=1.0-smoothstep(.022,.22,worldPosition.y-level);
   base*=mix(1.0,.48,wet);rough=mix(rough,.20,wet);
  }
  bool ground=(surf.z>3.5&&surf.z<4.5)||surf.z>=39.5;

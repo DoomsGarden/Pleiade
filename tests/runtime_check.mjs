@@ -50,6 +50,13 @@ assert(uniformWrites.get('uFlowTime')>0);
 el('animation').checked=true;el('animation').onchange();nextFrame(200);
 assert(uniformWrites.get('uWaterTime')>frozenWave);
 pleiade.setWaterMode('lake');pleiade.setClimate('summer','clear');
+pleiade.render();assert.equal(uniformWrites.get('uWet'),true);
+el('animation').checked=false;el('animation').onchange();
+nextFrame(250);const wetTime=uniformWrites.get('uWetTime');
+nextFrame(300);
+assert.equal(uniformWrites.get('uWetTime'),wetTime,'wet beach freezes with the swell');
+assert.equal(uniformWrites.get('uWaterTime'),wetTime,'wet beach and water share a phase');
+el('animation').checked=true;el('animation').onchange();
 if(androidMock){
  assert.equal(pleiade.state.quality,'eco');
  el('import-world').onclick({preventDefault(){}});assert(openedWorld);
@@ -106,6 +113,7 @@ for(const [mode,index] of ['lake','river','falls'].entries()){
  const x=index==='lake'?-11:channel(-6);
  assert(basin.height(x,-6)<waterBase(index,-6)-.43);
  pleiade.setWaterMode(index);pleiade.render();assert.equal(uniformWrites.get('uWaterMode'),mode);
+ assert.equal(uniformWrites.get('uWet'),index==='lake');
  assert.equal(pleiade.report().shore.mode,index);
  const a=driftSamples(index,5), b=driftSamples(index,6);
  if(index!=='lake'){

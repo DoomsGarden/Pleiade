@@ -8,6 +8,8 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 out = root / "dist/assets"
 shader = (root / "tools/desktop-source/shaders.hpp").read_text()
+lake_waves=re.search(r'inline const char \*lakeWaves = R"GLSL\((.*?)\)GLSL";',shader,re.S).group(1)
+foam_shading=re.search(r'inline const char \*foamShading = R"GLSL\((.*?)\)GLSL";',shader,re.S).group(1)
 shaders={}
 for name in ['geometry','shadow','material','fullscreen','composite']:
  s=re.search(r'inline const char \*'+name+r' = R"GLSL\((.*?)\)GLSL";',shader,re.S).group(1)
@@ -22,9 +24,10 @@ for name in ['geometry','shadow','material','fullscreen','composite']:
   for i,value in enumerate(held):s=s.replace('@@H'+str(i)+'@@',value)
  else:
   s=s.replace('p*2-1','p*2.0-1.0')
- shaders[name]=s
+ s=s.replace('// INCLUDE_LAKE_WAVES',lake_waves).replace('// INCLUDE_WATER_FOAM',foam_shading)
+ shaders[name]=s.replace('WEB_SHORE','true')
 material=shaders['material'];a=material.index('float visibility(vec3 n){');b=material.index('\nvec3 sky',a)
 shaders['material']=material[:a]+(Path(__file__).parent/'shaders/shadow_filter.glsl').read_text()+material[b:]
 (out/'shaders.json').write_text(json.dumps(shaders))
 
-runpy.run_path(str(root / "tools/apply_celestial.py"))
+runpy.run_path(str(root / "tools/apply_celestial.py"),init_globals={"lake_waves":lake_waves})

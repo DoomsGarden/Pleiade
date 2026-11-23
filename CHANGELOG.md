@@ -1,3 +1,15 @@
+# Versión de prueba 0.000.00.017 — oleaje y espuma
+
+- En el lago, las crestas avanzan hacia tierra y se frenan al entrar en aguas someras. La humedad del terreno usa la misma fase que la superficie y conserva el rastro del agua durante la retirada.
+- La espuma forma manchas con huecos. Nace cerca de la rompiente y de las rocas, raíces y ramas que cortan la superficie. En la cascada se arrastra por la caída y se ensancha al pie antes de perder densidad corriente abajo.
+- El visor concentra más vértices en la orilla y el salto de agua. La refracción se proyecta desde la cámara y pierde intensidad al acercarse al borde. La escena de orilla en C++ comparte el cálculo del oleaje y la espuma del lago.
+
+Se muestreó el shader en seis perfiles de orilla y se compararon fotogramas de la cascada, el río, la lluvia y la nieve en Chromium WebGL 2 por software. La escena de orilla se ejecutó en C++ con Mesa. El agua usa un modelo de superficie parametrizado. Queda pendiente medir el rendimiento en la tableta. [Orilla y cascada](tests/results/visual-017/orilla-y-cascada.jpg)
+
+Referencias físicas. [Oleaje en aguas someras, NOAA](https://repository.library.noaa.gov/view/noaa/38235/noaa_38235_DS1.pdf) · [Evolución de la espuma en olas rompientes, JGR Oceans](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2023JC020193).
+
+---
+
 # Versión de prueba 0.000.00.016 — corriente, precipitación y copas
 
 - Las ondas tienen un reloj propio. La corriente, la nieve, la lluvia y las ramas desprendidas siguen su curso aunque desactives la ondulación.

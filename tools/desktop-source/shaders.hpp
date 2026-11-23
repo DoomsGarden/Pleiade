@@ -1,5 +1,96 @@
 #pragma once
 namespace pl::shader {
+inline const char *lakeWaves = R"GLSL(
+// Coast coordinates in metres. The WebGL basin bends along z; the native demo
+// has a different shoreline profile. Positive x leads toward dry ground.
+vec2 shoreCoordinates(vec2 p,bool curved){
+ float bank=curved?1.60*sin(p.y*.091)+.68*sin(p.y*.19)
+                  :-(.12*sin(p.y*.15)+.02*sin(p.y*.4))/.08;
+ return vec2(p.x-bank,p.y);
+}
+float shoreBankSlope(float z,bool curved){
+ return curved?.1456*cos(z*.091)+.1292*cos(z*.19)
+               :-(.018*cos(z*.15)+.008*cos(z*.4))/.08;
+}
+float shoreShallow(float x){
+ return 1.0/(1.0+exp(clamp(-.44*(x+2.35),-24.0,24.0)));
+}
+float swellPhase(vec2 q,float time){
+ // Raising the spatial frequency in shallow water slows the advancing crest.
+ return 1.48*(q.x+4.0*shoreShallow(q.x))+.19*q.y+.54*sin(q.y*.36)-1.86*time;
+}
+vec3 lakeWave(vec2 p,float time,float strength,bool curved){
+ vec2 q=shoreCoordinates(p,curved);
+ float shallow=shoreShallow(q.x), delta=.44*shallow*(1.0-shallow);
+ float phase=swellPhase(q,time);
+ float secondary=2.82*(q.x+1.8*shallow)-.51*q.y-2.91*time+.77;
+ float capillary=5.3*q.x+.98*q.y-3.75*time;
+ float group=q.y*.48+q.x*.29-time*.39;
+ float envelope=.83+.17*cos(group);
+ float base=.045+.025*shallow;
+ float amplitude=base*envelope;
+ float height=amplitude*sin(phase)+.017*sin(secondary)+.0035*sin(capillary);
+ float dx=(.025*delta*envelope-base*.0493*sin(group))*sin(phase)+amplitude*1.48*(1.0+4.0*delta)*cos(phase)
+          +.017*2.82*(1.0+1.8*delta)*cos(secondary)+.01855*cos(capillary);
+ float dz=amplitude*(.19+.1944*cos(q.y*.36))*cos(phase)-base*.0816*sin(group)*sin(phase)
+          -.00867*cos(secondary)+.00343*cos(capillary);
+ return strength*vec3(height,dx,dz-shoreBankSlope(p.y,curved)*dx);
+}
+float recentShoreWater(vec2 p,float time,float strength,bool curved){
+ float now=lakeWave(p,time,strength,curved).x;
+ float last=lakeWave(p,max(0.0,time-.36),strength,curved).x-.018;
+ float prior=lakeWave(p,max(0.0,time-.78),strength,curved).x-.042;
+ return max(now,max(last,prior));
+}
+)GLSL";
+inline const char *foamShading = R"GLSL(
+float foamHash(vec2 p){
+ vec3 h=fract(vec3(p.x,p.y,p.x)*vec3(.1031,.1030,.0973));
+ h+=dot(h,h.yzx+33.33);
+ return fract((h.x+h.y)*h.z);
+}
+float foamNoise(vec2 p){
+ vec2 cell=floor(p),f=fract(p);
+ f=f*f*(3.0-2.0*f);
+ return mix(mix(foamHash(cell),foamHash(cell+vec2(1.0,0.0)),f.x),
+            mix(foamHash(cell+vec2(0.0,1.0)),foamHash(cell+1.0),f.x),f.y);
+}
+// Broad, fragmented patches with holes. The fine texture fades into its
+// average coverage when the cell size projects to less than a pixel.
+float foamLace(vec2 flow,float density,float footprint){
+ float broad=foamNoise(flow*2.5);
+ vec2 warped=flow+vec2(broad-.5,foamNoise(flow*1.45+8.3)-.5)*.26;
+ float fine=foamNoise(warped*12.0+5.1);
+ float pores=mix(fine,.54,smoothstep(.022,.13,footprint));
+ float texture=.62*broad+.38*pores;
+ float threshold=mix(.79,.30,clamp(density,0.0,1.0));
+ return smoothstep(threshold-.095,threshold+.095,texture)*smoothstep(.012,.22,density);
+}
+float lakeFoam(vec2 p,float time,float strength,bool curved,float footprint){
+ if(strength<=.001)return 0.0;
+ vec2 q=shoreCoordinates(p,curved);
+ // Foam is generated near the depth at which this swell overturns. Evaluate
+ // the crest at its generation point and time, then carry the patch inland.
+ float line=-.35-1.55*strength+.60*(foamNoise(vec2(q.y*.84,4.2))-.5);
+ float runup=q.x-line;
+ float age=max(0.0,runup/.72);
+ float arrival=swellPhase(vec2(line,q.y-age*.22),time-age);
+ float crest=sin(arrival);
+ float patchiness=foamNoise(vec2(q.y*.57-arrival*.14, time*.24));
+ float breaking=smoothstep(.42,.90,crest)*mix(.49,1.18,patchiness);
+ float lingering=.19*smoothstep(-.82,.52,sin(arrival-.77));
+ float drift=exp(-age*.58)*smoothstep(-.52,.12,runup)*(1.0-smoothstep(1.8,3.1,age));
+ float density=drift*(breaking+lingering)*smoothstep(.025,.67,strength);
+ if(density<.012)return 0.0;
+ return .78*foamLace(vec2(q.x-time*.71,q.y-time*.11),density,footprint);
+}
+vec3 applyWaterFoam(vec3 water,float foam,vec3 light,float ambient,float sun){
+ // Foam is a diffuse mixture of air and water. It hides the sharp surface
+ // reflection and catches the sun even when the water below looks dark.
+ vec3 body=vec3(.60,.674,.674)*(ambient*.56+.045)+light*(.113+.09*sun);
+ return mix(water,body,clamp(foam,0.0,.93));
+}
+)GLSL";
 inline const char *geometry = R"GLSL(#version 430 core
 layout(location=0) in vec3 aPosition;
 layout(location=1) in vec3 aNormal;
@@ -314,6 +405,7 @@ PBRSurface biomeSurface(vec3 n,float layer){
  return blendSurface(surfaceMap,bakedSurface(ground*.325,11.0,n),
    smoothstep(.52,.72,patches)*.48+(1.0-smoothstep(.54,.81,n.y))*.46);
 }
+// INCLUDE_LAKE_WAVES
 void main(){
  worldPosition=rasterPosition;localPosition=rasterLocal;
  vec3 normal=worldNormal;vec3 surf=surface;
@@ -471,8 +563,10 @@ void main(){
    base*=1-.23*max(line.x,line.y);
  }
  if(uWet!=0&&surf.z>3.5&&surf.z<4.5){
-  float level=uWaveStrength*(.025*sin(worldPosition.x*.7+worldPosition.z*.35+uWetTime*1.1)+.012*sin(worldPosition.z*1.1-worldPosition.x*.2-uWetTime*.8));
-  float wet=1.0-smoothstep(.025,.24,worldPosition.y-level);
+  float level=0.0;
+  if(abs(worldPosition.y)<.36)
+    level=recentShoreWater(worldPosition.xz,uWetTime,uWaveStrength,WEB_SHORE);
+  float wet=1.0-smoothstep(.022,.22,worldPosition.y-level);
   base*=mix(1.0,.48,wet);rough=mix(rough,.20,wet);
  }
  bool ground=(surf.z>3.5&&surf.z<4.5)||surf.z>=39.5;
@@ -558,7 +652,9 @@ float ambientContact(vec2 p){
  }
  return clamp(1.0-occlusion*(2.0/12.0),.35,1.0);
 }
-float waterHeight(vec2 p){return uWaveStrength*(.025*sin(p.x*.7+p.y*.35+uWaterTime*1.1)+.012*sin(p.y*1.1-p.x*.2-uWaterTime*.8));}
+// INCLUDE_LAKE_WAVES
+// INCLUDE_WATER_FOAM
+float waterHeight(vec2 p){return lakeWave(p,uWaterTime,uWaveStrength,false).x;}
 float groundHeight(vec2 p){return .08*p.x+.12*sin(p.y*.15)+.02*sin(p.x*.8+p.y*.4);}
 vec3 fromView(vec3 p){return uCameraEye+uCameraRight*p.x+uCameraUp*p.y-uCameraForward*p.z;}
 vec3 toView(vec3 p){vec3 d=p-uCameraEye;return vec3(dot(d,uCameraRight),dot(d,uCameraUp),-dot(d,uCameraForward));}
@@ -634,8 +730,8 @@ bool waterSurface(vec2 screen,out vec3 result,out float coverage){
  if(depth<.999999&&t>=-viewPosition(screen,depth).z)return false;
  float waterDepth=waterHeight(point.xz)-groundHeight(point.xz);if(waterDepth<=0.0)return false;
  coverage=smoothstep(0.0,.045,waterDepth);
- float a=cos(point.x*.7+point.z*.35+uWaterTime*1.1),b=cos(point.z*1.1-point.x*.2-uWaterTime*.8);
- vec3 n=normalize(vec3(-uWaveStrength*(.0175*a-.0024*b),1.0,-uWaveStrength*(.00875*a+.0132*b))),v=normalize(uCameraEye-point);
+ vec3 wave=lakeWave(point.xz,uWaterTime,uWaveStrength,false);
+ vec3 n=normalize(vec3(-wave.y,1.0,-wave.z)),v=normalize(uCameraEye-point);
  vec3 reflected=reflect(-v,n);
  vec3 reflection=mix(vec3(.29,.36,.42),vec3(.095,.20,.33),clamp(reflected.y,0.0,1.0));
  // The reflected direction follows the actual water normal; no independent image animation.
@@ -653,7 +749,11 @@ bool waterSurface(vec2 screen,out vec3 result,out float coverage){
  float fresnel=waterFresnel(dot(n,v));
  vec3 halfVector=normalize(v+vec3(-.4562,.7603,.4562));
  vec3 sun=vec3(4.4,3.95,3.2)*pow(max(dot(n,halfVector),0.0),512.0)*.8;
- result=mix(body,reflection,fresnel)+sun;return true;
+ float footprint=t/(float(textureSize(uDepth,0).y)*uProjectionScale.y);
+ float foam=lakeFoam(point.xz,uWaterTime,uWaveStrength,false,footprint);
+ coverage=max(coverage,foam*smoothstep(.002,.028,waterDepth));
+ result=applyWaterFoam(mix(body,reflection,fresnel)+sun,foam,vec3(1.0,.94,.82),.75,max(dot(n,halfVector),0.0));
+ return true;
 }
 vec3 aces(vec3 x){return clamp((x*(2.51*x+.03))/(x*(2.43*x+.59)+.14),0.0,1.0);}
 vec3 mapped(vec2 p,float contact){
