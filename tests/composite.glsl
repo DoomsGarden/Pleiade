@@ -6,12 +6,14 @@ precision highp sampler2DArray;
 in vec2 uv;out vec4 frag;
 uniform sampler2D uDirect;uniform sampler2D uAmbient;uniform sampler2D uDepth;
 uniform float uExposure;
-uniform float uTurbidity;uniform int uAA;
+uniform float uTurbidity;
+uniform int uOrthographic;uniform int uAA;
 uniform sampler2D uNormal;uniform int uContact;uniform vec2 uProjectionScale;
 uniform int uWater,uWaterSSR;uniform float uWaterTime;uniform float uWaveStrength;
 uniform vec3 uCameraEye,uCameraRight,uCameraUp,uCameraForward;
 // Perspective reconstruction uses Camera's shared 0.1 / 250.0 metre clipping planes.
 vec3 viewPosition(vec2 p,float depth){
+ if(uOrthographic!=0)return vec3((p*2.0-1.0)/uProjectionScale,-mix(.1,250.0,depth));
  float z=(2.0*.1*250.0)/(250.0+.1-(depth*2.0-1.0)*(250.0-.1));
  return vec3((p*2.0-1.0)*z/uProjectionScale,-z);
 }
@@ -24,7 +26,7 @@ float ambientContact(vec2 p){
  for(int i=0;i<12;i++){
    float t=float(i)+.5,angle=t*2.39996323;
    float radius=t<6.0 ? .38 : 1.25;
-   vec2 projected=radius*uProjectionScale/(2.0*max(-origin.z,.1));
+   vec2 projected=radius*uProjectionScale/(2.0*(uOrthographic!=0?1.0:max(-origin.z,.1)));
    vec2 q=p+vec2(cos(angle),sin(angle))*sqrt((mod(float(i),6.0)+.5)/6.0)*projected;
    if(any(lessThan(q,vec2(0.0)))||any(greaterThan(q,vec2(1.0))))continue;
    float sd=texture(uDepth,q).r;if(sd>=.999999)continue;
@@ -496,7 +498,7 @@ void main(){
  float depth=texture(uDepth,uv).r;
  vec3 c;
  if(depth>=.999999){
- vec3 ray=normalize(uCameraForward+uCameraRight*((uv.x*2.0-1.0)/uProjectionScale.x)+uCameraUp*((uv.y*2.0-1.0)/uProjectionScale.y));
+ vec3 ray=uOrthographic!=0?uCameraForward:normalize(uCameraForward+uCameraRight*((uv.x*2.0-1.0)/uProjectionScale.x)+uCameraUp*((uv.y*2.0-1.0)/uProjectionScale.y));
  c=pow(aces(cloudSky(celestialSky(ray),uCameraEye,ray)*uExposure),vec3(1.0/2.2));
  }else{
  float contact=ambientContact(uv);c=mapped(uv,contact);

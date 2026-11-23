@@ -1,6 +1,6 @@
-<!doctype html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#10251f"><title>Pléiade · Visor de tablet</title><link rel="stylesheet" href="style.css?v=8"></head><body>
+<!doctype html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#10251f"><title>Pléiade · Visor de tablet</title><link rel="stylesheet" href="style.css?v=9"></head><body data-map-editor>
 <canvas id="view" aria-label="Escena 3D de Pléiade. Arrastra para girar y usa dos dedos para acercarte." tabindex="0"></canvas>
-<header><div class="brand"><span class="star">✳</span><div><strong>PLÉIADE</strong><small>CAMPO DE PRUEBAS · TABLET</small></div></div><div class="header-actions"><button id="reset" title="Restablecer cámara">Centrar</button><button id="settings" aria-expanded="false" aria-controls="panel">Ajustes</button></div></header>
+<header><div class="brand"><span class="star">✳</span><div><strong>PLÉIADE</strong><small>CAMPO DE PRUEBAS · TABLET</small></div></div><div class="header-actions"><button id="map-toggle" disabled aria-expanded="false" aria-controls="map-editor">Editor de mapas</button><button id="reset" title="Restablecer cámara">Centrar</button><button id="settings" aria-expanded="false" aria-controls="panel">Ajustes</button></div></header>
 <main><section class="scene-label"><h1 id="scene-title">La orilla</h1><p id="scene-description">Agua, piedra y vegetación de ribera.</p>
 <label id="biome-control" hidden><select id="biome" aria-label="Bioma"><option value="forest">Bosque templado</option><option value="desert">Desierto</option><option value="snow">Montañas nevadas</option><option value="tropical">Trópico</option><option value="bamboo">Bosque de bambú</option></select></label>
 <label id="shore-control" class="scene-select" hidden><select id="water-mode" aria-label="Tipo de agua"><option value="lake">Orilla del lago</option><option value="river">Río</option><option value="falls">Cascada</option></select></label>
@@ -14,4 +14,35 @@
 </main>
 <div class="zoom"><button id="plus" aria-label="Acercar">+</button><button id="minus" aria-label="Alejar">−</button><button id="height" aria-label="Cambiar entre vista cercana y estrategia">Altura</button></div>
 <footer><nav aria-label="Escenas"><button class="active" data-scene="shore" aria-pressed="true">Orilla</button><button data-scene="materials" aria-pressed="false">Materiales</button><button data-scene="building" aria-pressed="false">Edificación</button><button data-scene="biomes" aria-pressed="false">Biomas</button></nav><div class="telemetry"><span id="fps">— FPS</span><span id="resolution">—</span><span class="live-dot"></span><span id="state">Cargando</span><span>v0.000.00.018</span></div></footer>
-<div id="toast" role="status" hidden></div><script type="module" src="app.js?v=13"></script></body></html>
+<aside id="map-editor" hidden aria-labelledby="map-heading">
+<h2 id="map-heading">Editor de mapas</h2>
+<form id="map-form">
+<div class="map-fields">
+<label class="map-full">Nombre<input id="map-name" maxlength="72" required></label>
+<label>Perfil del juego<select id="map-profile"><option value="urban">Isométrica urbana</option><option value="walk">Primera persona</option><option value="strategy">Estrategia</option></select></label>
+<label>Semilla<input id="map-seed" type="number" min="0" max="4294967295" required></label>
+<label>Bioma<select id="map-biome"><option value="forest">Bosque templado</option><option value="desert">Desierto</option><option value="snow">Montañas nevadas</option><option value="tropical">Trópico</option><option value="bamboo">Bosque de bambú</option></select></label>
+<label>Lado (m)<input id="map-span" type="number" min="64" max="180" required></label>
+<label>Relieve<input id="map-relief" type="number" min="0" max="2" step=".01" required></label>
+<label>Árboles<input id="map-trees" type="number" min="0" max="45" required></label>
+<label>Casas<input id="map-buildings" type="number" min="0" max="24" required></label>
+<label>Calidad<select id="map-quality"><option value="eco">Ahorro</option><option value="balanced">Equilibrada</option><option value="detail">Detalle</option></select></label>
+<label class="map-check map-full"><input id="map-shadows" type="checkbox"> Sombras</label>
+</div>
+<div class="map-actions"><button type="submit" class="active">Aplicar mapa</button><button type="button" id="map-play">Probar mapa</button></div>
+</form>
+<div class="map-tools map-fields">
+<label>Herramienta<select id="map-tool"><option value="raise">Elevar terreno</option><option value="lower">Bajar terreno</option><option value="tree">Colocar árbol</option><option value="house">Colocar casa</option><option value="rock">Colocar roca</option><option value="start">Punto de inicio</option><option value="erase">Retirar objeto</option></select></label>
+<label>Radio (m)<input id="map-brush" type="number" min="3" max="18" step="1" value="8"></label>
+</div>
+<p class="hint">Pulsa el terreno para editar. Arrastra para desplazarte y usa la rueda para acercarte.</p>
+<div class="map-actions"><button type="button" id="map-undo">Deshacer</button><button type="button" id="map-export">Exportar JSON</button></div>
+<label class="map-file">Importar mapa<input id="map-import" type="file" accept=".json,application/json"></label>
+<p id="map-status" role="status" aria-live="polite"></p>
+</aside>
+<aside id="map-controls" hidden aria-label="Controles de prueba">
+<div class="map-control-row"><button id="map-edit" type="button">Volver al editor</button><p id="map-instructions" role="status"></p></div>
+<div id="map-directions"><button type="button" data-map-move="up" aria-label="Avanzar">↑</button><button type="button" data-map-move="left" aria-label="Izquierda">←</button><button type="button" data-map-move="down" aria-label="Retroceder">↓</button><button type="button" data-map-move="right" aria-label="Derecha">→</button></div>
+</aside>
+<div id="map-aim" hidden aria-hidden="true"></div>
+<div id="toast" role="status" hidden></div><script type="module" src="app.js?v=14"></script></body></html>

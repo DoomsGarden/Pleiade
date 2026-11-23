@@ -25,7 +25,9 @@ vec3 atmosphereFog(vec3 d){float h=max(d.y,0.0);return mix(mix(vec3(.006,.009,.0
   t=t.replace('v+vec3(-.4562,.7603,.4562)','v+uSkyLightDirection').replace('vec3(4.4,3.95,3.2)','uLightColor')
   t=t.replace('c=mix(vec3(.54,.63,.69),vec3(.095,.20,.33),smoothstep(0.0,1.0,p.y))','c=celestialSky(uCameraForward+uCameraRight*((p.x*2.0-1.0)/uProjectionScale.x)+uCameraUp*((p.y*2.0-1.0)/uProjectionScale.y))')
  if name=='composite':
-  t=t.replace('uniform float uExposure;', 'uniform float uExposure;\nuniform float uTurbidity;')
+  t=t.replace('uniform float uExposure;', 'uniform float uExposure;\nuniform float uTurbidity;\nuniform int uOrthographic;')
+  t=t.replace('vec3 viewPosition(vec2 p,float depth){', 'vec3 viewPosition(vec2 p,float depth){\n if(uOrthographic!=0)return vec3((p*2.0-1.0)/uProjectionScale,-mix(.1,250.0,depth));')
+  t=t.replace('2.0*max(-origin.z,.1)', '2.0*(uOrthographic!=0?1.0:max(-origin.z,.1))')
   t=t.replace('vec3 transmission=exp(-vec3(.65,.27,.18)*waterDepth);', 'float waterPath=min(30.0,waterDepth/max(dot(n,v),.12));\n vec3 transmission=exp(-(vec3(.65,.27,.18)+vec3(uTurbidity))*waterPath);')
   # Reject sky neighbours and depth discontinuities when smoothing opaque geometry.
   at=t.index('void main(){',t.index('vec3 mapped('))
@@ -41,7 +43,7 @@ void main(){
  float depth=texture(uDepth,uv).r;
  vec3 c;
  if(depth>=.999999){
- vec3 ray=normalize(uCameraForward+uCameraRight*((uv.x*2.0-1.0)/uProjectionScale.x)+uCameraUp*((uv.y*2.0-1.0)/uProjectionScale.y));
+ vec3 ray=uOrthographic!=0?uCameraForward:normalize(uCameraForward+uCameraRight*((uv.x*2.0-1.0)/uProjectionScale.x)+uCameraUp*((uv.y*2.0-1.0)/uProjectionScale.y));
  c=pow(aces(cloudSky(celestialSky(ray),uCameraEye,ray)*uExposure),vec3(1.0/2.2));
  }else{
  float contact=ambientContact(uv);c=mapped(uv,contact);

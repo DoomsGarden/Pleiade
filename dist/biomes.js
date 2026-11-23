@@ -16,7 +16,7 @@ const smooth = t => clamp(t) ** 2 * (3 - 2 * clamp(t));
 const extent = 78;
 const snowCabin = [6, -13];
 
-function hash(x) {
+export function hash(x) {
     x = Math.imul(x ^ x >>> 16, 0x7feb352d);
     x = Math.imul(x ^ x >>> 15, 0x846ca68b);
     return ((x ^ x >>> 16) >>> 0) / 4294967296;
@@ -29,7 +29,7 @@ function noise(x, z, seed) {
     return mix(mix(at(ix, iz), at(ix + 1, iz), u), mix(at(ix, iz + 1), at(ix + 1, iz + 1), u), v);
 }
 
-function terrainProfile(name, seed) {
+export function terrainProfile(name, seed) {
     const ground = (x, z) => (noise(x * .069, z * .069, seed) - .5) * 2.7
         + (noise(x * .24, z * .24, seed ^ 591) - .5) * .72;
     if (name === 'desert') {
@@ -76,8 +76,8 @@ function terrainProfile(name, seed) {
     return ground;
 }
 
-export function terrainPieces(profile, seed, cells = 28, order) {
-    const side = cells + 1, width = extent * 2 / 3, step = width / cells, offset = step * .38;
+export function terrainPieces(profile, seed, cells = 28, order, mapExtent = extent) {
+    const side = cells + 1, width = mapExtent * 2 / 3, step = width / cells, offset = step * .38;
     const indices = new Uint32Array(cells * cells * 6);
     let index = 0;
     for (let iz = 0; iz < cells; iz++)
@@ -90,7 +90,7 @@ export function terrainPieces(profile, seed, cells = 28, order) {
     if(variants.length!==9||new Set(variants).size!==9||variants.some(i=>!Number.isInteger(i)||i<0||i>8))
         throw new RangeError('Se necesitan las nueve variantes del terreno');
     function relief(x,z) {
-        const u=(x+extent)/width, v=(z+extent)/width;
+        const u=(x+mapExtent)/width, v=(z+mapExtent)/width;
         if(u<0||u>=3||v<0||v>=3)return profile(x,z);
         const col=Math.floor(u), row=Math.floor(v), dx=u-col, dz=v-row;
         const edge=Math.min(dx,1-dx,dz,1-dz);
@@ -102,7 +102,7 @@ export function terrainPieces(profile, seed, cells = 28, order) {
         const col=tile%3,row=Math.floor(tile/3),vertices=new Float32Array(side*side*8);
         for(let iz=0;iz<=cells;iz++) for(let ix=0;ix<=cells;ix++) {
             // Global integer coordinates produce bit-identical positions and normals on shared edges.
-            const gx=col*cells+ix,gz=row*cells+iz,x=-extent+gx*step,z=-extent+gz*step;
+            const gx=col*cells+ix,gz=row*cells+iz,x=-mapExtent+gx*step,z=-mapExtent+gz*step;
             const dx=(relief(x+offset,z)-relief(x-offset,z))/(2*offset);
             const dz=(relief(x,z+offset)-relief(x,z-offset))/(2*offset);
             const unit=1/Math.hypot(dx,1,dz);
@@ -111,7 +111,7 @@ export function terrainPieces(profile, seed, cells = 28, order) {
         return {id:`biome-ground-${tile}`,variant,vertices,indices};
     });
     function surfaceHeight(x,z) {
-        const u=(x+extent)/step,v=(z+extent)/step;
+        const u=(x+mapExtent)/step,v=(z+mapExtent)/step;
         if(u<0||u>3*cells||v<0||v>3*cells)return profile(x,z);
         const col=Math.min(2,Math.floor(u/cells)),row=Math.min(2,Math.floor(v/cells));
         const lx=u-col*cells,lz=v-row*cells;

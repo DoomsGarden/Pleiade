@@ -3,13 +3,15 @@ in vec3 worldNormal;
 out vec4 frag;
 uniform sampler2D uOpaqueDepth;
 uniform vec3 uEye;
+uniform vec3 uGlassForward;
+uniform int uOrthographic;
 uniform float uExposure;
 void main(){
  ivec2 at=ivec2(gl_FragCoord.xy);
  float opaque=texelFetch(uOpaqueDepth,at,0).r;
  if(gl_FragCoord.z>=opaque-.000002)discard;
  vec3 n=normalize(worldNormal);
- vec3 v=normalize(uEye-rasterPosition);
+ vec3 v=uOrthographic!=0?-uGlassForward:normalize(uEye-rasterPosition);
  // The pane has negligible distortion. Its transmitted color comes from the actual interior.
  vec3 reflected=reflect(-v,n);
  float horizon=smoothstep(-.08,.012,reflected.y);

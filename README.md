@@ -44,6 +44,16 @@ npm test
 PLEIADE_ANDROID_MOCK=1 node tests/runtime_check.mjs
 ```
 
+## Editor privado de mapas
+
+Abre **Editor de mapas** en la edición privada del visor y selecciona un perfil. La semilla, el bioma, el relieve y las densidades alimentan la generación del terreno y del poblamiento. **Aplicar mapa** reconstruye la escena con esos parámetros. Los ajustes de calidad y sombras quedan asociados al mapa.
+
+- **Primera persona** coloca la cámara a la altura de los ojos. Usa WASD o las flechas táctiles para caminar y arrastra para mirar.
+- **Isométrica urbana** genera una red de calles con parcelas y usa una cámara ortográfica que sigue al jugador.
+- **Estrategia** usa una cámara desplazable. Selecciona una unidad y pulsa un punto del terreno para darle una orden. La ruta evita obstáculos y desniveles pronunciados.
+
+Elige una herramienta y pulsa el terreno para esculpirlo, colocar o retirar árboles, casas y rocas, o cambiar el punto de inicio. El editor guarda el mapa activo en este navegador. Exporta el JSON para crear copias o trasladar el mapa a otro equipo. El prototipo usa mapas de 64 a 180 m de lado y recursos del visor WebGL 2.
+
 ## Regenerar materiales y escenas
 
 Blender genera los mapas de color, opacidad, normales tangentes y rugosidad del atlas. El exportador C++ actualiza las mallas y las escenas de referencia del visor desde el renderer.
