@@ -1,10 +1,11 @@
 import {generateWorld,validateWorld,celestialFrame,starAtlas,cloudTransmission,angularRadiusBounds} from './celestial.js';
 import {biomes,createBiome,copyPrototype} from './biomes.js';
-import {createWatershed,waterModes,driftSamples,channel,waterBase} from './watershed.js';
+import {createWatershed,waterModes,driftSamples,channel,lakeBank,waterBase} from './watershed.js';
 import {climateAt,seasons,weatherModes} from './climate.js';
 import {moveDetached,plantContact} from './plant_contact.js';
+import {ceiling,flightLimits,fly} from './flight.js';
 const $=id=>document.getElementById(id), canvas=$('view');
-const VERSION='0.000.00.018';
+const VERSION='0.000.00.019';
 const params=new URLSearchParams(location.search);
 const state={ready:false,scene:'shore',biome:'forest',waterMode:'lake',underwater:false,buildingForm:'cabin',season:'summer',weather:'clear',quality:window.PleiadeAndroid?'eco':'balanced',materials:true,shadows:true,shadowSoft:true,water:true,ssr:false,contact:false,animation:true,waveStrength:.35,time:0,waveTime:0,frames:0,errors:[],fps:0,hdr:false,paused:false};
 window.pleiade={state};
@@ -14,13 +15,16 @@ const math={
  unit:a=>{let l=Math.hypot(...a);return a.map(x=>x/(l||1));},
  mul:(a,b)=>{const o=new Float32Array(16);for(let c=0;c<4;c++)for(let r=0;r<4;r++)for(let k=0;k<4;k++)o[c*4+r]+=a[k*4+r]*b[c*4+k];return o;},
  look:(eye,target)=>{let z=math.unit(math.sub(eye,target)),x=math.unit(math.cross([0,1,0],z)),y=math.cross(z,x);return new Float32Array([x[0],y[0],z[0],0,x[1],y[1],z[1],0,x[2],y[2],z[2],0,-math.dot(x,eye),-math.dot(y,eye),-math.dot(z,eye),1]);},
- perspective:(fov,aspect)=>{let f=1/Math.tan(fov/2),n=.1,fz=250;return new Float32Array([f/aspect,0,0,0,0,f,0,0,0,0,(fz+n)/(n-fz),-1,0,0,2*fz*n/(n-fz),0]);},
+ perspective:(fov,aspect,n,fz)=>{let f=1/Math.tan(fov/2);return new Float32Array([f/aspect,0,0,0,0,f,0,0,0,0,(fz+n)/(n-fz),-1,0,0,2*fz*n/(n-fz),0]);},
  ortho:(l,r,b,t,n,f)=>new Float32Array([2/(r-l),0,0,0,0,2/(t-b),0,0,0,0,-2/(f-n),0,-(r+l)/(r-l),-(t+b)/(t-b),-(f+n)/(f-n),1])
 };
 let gl,programs={},meshes=new Map(),groups=[],materialTextures=[],targets=[],sceneFbo,shadowFbo,shadowTexture,visibilityTexture,shadowSize=1024,emptyVAO,sceneData,manifest,shadowDirty=true,frameRequest=0,lastFrame=0,lastTime=0,statTime=0,statFrames=0,capturePending=false,toastTimer;
 let world=generateWorld(),starTexture,skyFrame,skyRunning=false,skyView=false,flightAltitude=2,opticalFov=62,cloudAmount=0,turbidity=.3,lastSaved=0;
 try{const saved=localStorage.getItem('pleiade-world-v1');if(saved)world=validateWorld(JSON.parse(saved));}catch{}
-let cloudTexture,cloudFbo,cloudWidth=0,cloudKey='',cloudBuilds=0,cloudReuse=true;
+let cloudTexture,cloudFbo,cloudWidth=0,cloudKey='',cloudOrigin=[],cloudBuiltAt=0,cloudBuilds=0,cloudReuse=true;
+const flightKeys=new Set(), flightButtons=new Map(), pointers=new Map();
+const flightCommands=['forward','back','left','right','rise','sink'];
+let flight=null,gesture=null;
 let camera={target:[-1,0,-2],yaw:.8,pitch:.32,distance:15};
 let activeBiome, drawAnchor, layoutRevision=0, drawnRevision=-1, drawnSignature=0, submittedTriangles=0, needleBundles=0, foliageBundles=0;
 let watershed,shoreObjects,waterFbo,waterDepth,glassGroup;
@@ -280,6 +284,7 @@ function useBiome(name){
  if(state.ready)useScene('biomes');
 }
 function resetCamera(){
+ endFlight();
  skyView=false;
  if(state.scene==='biomes'){
   const [x,rise,z,yaw,pitch,distance]=biomes[state.biome].view;
@@ -290,13 +295,70 @@ function resetCamera(){
  else if(state.waterMode==='river')camera={target:[-1.7,1.2,-5.2],yaw:.79,pitch:.29,distance:20};
  else camera={target:[1.4,.65,-5.0],yaw:.61,pitch:.28,distance:19};
 }
-function cameraFrame(){let cp=Math.cos(camera.pitch),eye=math.add(camera.target,[Math.sin(camera.yaw)*cp*camera.distance,Math.sin(camera.pitch)*camera.distance,Math.cos(camera.yaw)*cp*camera.distance]);const ground=state.scene==='biomes'?activeBiome:state.scene==='shore'?watershed:null;eye[1]=Math.max(ground?ground.height(eye[0],eye[2])+.46:.3,eye[1]);let target=camera.target;if(skyView){eye=[camera.target[0],flightAltitude,camera.target[2]];target=math.add(eye,[Math.sin(camera.yaw)*cp,Math.sin(camera.pitch),Math.cos(camera.yaw)*cp]);}
+function clearFlightInputs(){flightKeys.clear();flightButtons.clear();}
+function clearPointerState(){pointers.clear();gesture=null;clearFlightInputs();}
+function endFlight(restoreView=false){
+ if(!flight)return;
+ if(restoreView){
+  skyView=flight.previousView.skyView;
+  state.underwater=flight.previousView.underwater;
+  $('dive').textContent=state.underwater?'Volver a la superficie':'Mirar bajo el agua';
+ }
+ flight=null;clearPointerState();
+ $('flight-controls').hidden=true;$('orbit-controls').hidden=false;
+ $('fly').setAttribute('aria-pressed','false');
+}
+function surfaceAt(x,z){
+ if(state.scene==='biomes')return activeBiome.height(x,z);
+ if(state.scene==='shore'){
+  const ground=watershed.height(x,z);
+  const overWater=state.water&&(state.waterMode==='lake'?x<=lakeBank(z)+3.5:Math.abs(x-channel(z))<=4.52);
+  return overWater?Math.max(ground,waterBase(state.waterMode,z)):ground;
+ }
+ return 0;
+}
+function beginFlight(){
+ if(!state.ready||flight)return;
+ const {eye,forward}=cameraFrame();
+ clearPointerState();
+ flight={eye:[...eye],yaw:Math.atan2(forward[0],forward[2]),pitch:Math.asin(Math.max(-1,Math.min(1,forward[1]))),
+  previousView:{skyView,underwater:state.underwater}};
+ state.underwater=false;$('dive').textContent='Mirar bajo el agua';skyView=false;
+ flight.eye=fly(flight.eye,flight.yaw,[0,0,0],0,flightEdge(),surfaceAt);
+ $('flight-controls').hidden=false;$('orbit-controls').hidden=true;
+ $('fly').setAttribute('aria-pressed','true');
+ $('flight-height').textContent=Math.round(flight.eye[1])+' m';
+}
+function flightEdge(){
+ return state.scene==='biomes'?43:state.scene==='shore'?45:15;
+}
+function advanceFlight(dt){
+ if(!flight)return;
+ const touch=[...flightButtons.values()];
+ const held=command=>flightKeys.has(command)||touch.includes(command);
+ const axis=(positive,negative)=>Number(held(positive))-Number(held(negative));
+ flight.eye=fly(flight.eye,flight.yaw,[axis('forward','back'),axis('right','left'),axis('rise','sink')],dt,flightEdge(),surfaceAt);
+ const text=Math.round(flight.eye[1])+' m';
+ if($('flight-height').textContent!==text)$('flight-height').textContent=text;
+}
+function projectedFrame(eye,target,depthRange){
+ const v=math.look(eye,target),p=math.perspective(opticalFov*Math.PI/180,canvas.width/canvas.height,...depthRange);
+ return {eye,v,p,vp:math.mul(p,v),depthRange,right:[v[0],v[4],v[8]],up:[v[1],v[5],v[9]],forward:[-v[2],-v[6],-v[10]]};
+}
+function cameraFrame(){
+ if(flight){
+  const {eye,yaw,pitch}=flight, cp=Math.cos(pitch);
+  const forward=[Math.sin(yaw)*cp,Math.sin(pitch),Math.cos(yaw)*cp];
+  return projectedFrame(eye,math.add(eye,forward),flightLimits(eye[1]));
+ }
+ let cp=Math.cos(camera.pitch),eye=math.add(camera.target,[Math.sin(camera.yaw)*cp*camera.distance,Math.sin(camera.pitch)*camera.distance,Math.cos(camera.yaw)*cp*camera.distance]);const ground=state.scene==='biomes'?activeBiome:state.scene==='shore'?watershed:null;eye[1]=Math.max(ground?ground.height(eye[0],eye[2])+.46:.3,eye[1]);let target=camera.target;if(skyView){eye=[camera.target[0],flightAltitude,camera.target[2]];target=math.add(eye,[Math.sin(camera.yaw)*cp,Math.sin(camera.pitch),Math.cos(camera.yaw)*cp]);}
  if(state.underwater&&state.scene==='shore'){
   const z=state.waterMode==='falls'?-7:-6;
   eye=[state.waterMode==='lake'?-11:channel(z),waterBase(state.waterMode,z)-.43,z];
   target=math.add(eye,[Math.sin(camera.yaw)*2,Math.min(.8,camera.pitch)*1.3-.45,Math.cos(camera.yaw)*2]);
  }
- let v=math.look(eye,target),p=math.perspective(opticalFov*Math.PI/180,canvas.width/canvas.height);return {eye,v,p,vp:math.mul(p,v),right:[v[0],v[4],v[8]],up:[v[1],v[5],v[9]],forward:[-v[2],-v[6],-v[10]]};}
+ return projectedFrame(eye,target,[.1,250]);
+}
 function setQuality(name){state.quality=name;$('quality').value=name;if(state.ready){drawAnchor=null;resizeShadow();resize();}}
 function drawGroup(g){gl.bindVertexArray(g.mesh.vao);gl.drawElementsInstanced(gl.TRIANGLES,g.mesh.count,gl.UNSIGNED_INT,0,g.instances);}
 function drawGroups(){for(const g of groups)drawGroup(g);}
@@ -313,9 +375,9 @@ function setWaterUniforms(p){
 function drawGlass(c){
  if(!glassGroup)return;
  const p=programs.glass;gl.useProgram(p.id);
- skyUniforms(p);um(p,'uVP',c.vp);uv(p,'uEye',c.eye);uf(p,'uExposure',1);
+ skyUniforms(p,c);um(p,'uVP',c.vp);uv(p,'uEye',c.eye);uf(p,'uExposure',1);
  bind(cloudTexture||visibilityTexture,13);ui(p,'uCloudMap',13);ui(p,'uCloudCached',cloudReuse&&cloudAmount>0);
- bind(targets[3],2);ui(p,'uOpaqueDepth',2);
+ bind(targets[3],2);ui(p,'uOpaqueDepth',2);gl.uniform2f(loc(p,'uDepthRange'),...c.depthRange);
  gl.enable(gl.CULL_FACE);gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
  drawGroup(glassGroup);gl.disable(gl.BLEND);gl.disable(gl.CULL_FACE);
 }
@@ -324,7 +386,7 @@ function drawWeather(c){
  if(state.weather==='rain')kinds.push([1,146]);
  if(state.weather==='snow')kinds.push([2,118]);
  if(climate.fall&&state.scene!=='building'&&!(state.scene==='biomes'&&state.biome!=='forest'))kinds.push([3,39]);
- if(!kinds.length||skyView)return;
+ if(!kinds.length||skyView||(flight&&c.eye[1]-surfaceAt(c.eye[0],c.eye[2])>60))return;
  const p=programs.weather;gl.useProgram(p.id);um(p,'uVP',c.vp);uv(p,'uCameraEye',c.eye);
  uf(p,'uTime',state.time);uf(p,'uWind',climate.wind);uf(p,'uScreenHeight',canvas.height);
  const origin=state.scene==='biomes'?[camera.target[0],camera.target[1],camera.target[2]]:
@@ -344,15 +406,21 @@ function syncRadiusUI(){
  for(const [id,key] of radiusControls){$(id).value=world[key];radiusLabel(id,world[key]);}
 }
 function applyWorld(w){world=validateWorld(w);if(state.scene==='biomes')regenerateBiome();if(watershed)regenerateShore();uploadStars();shadowDirty=true;syncSkyUI();syncRadiusUI();saveWorld();}
-function skyUniforms(p){uf(p,'uSkyPixelAngle',2*Math.tan(opticalFov*Math.PI/360)/canvas.height);uf(p,'uWorldSeed',world.seed%65536);uf(p,'uCloudAmount',cloudAmount);uf(p,'uCloudTime',world.elapsedDays*world.daySeconds);uv(p,'uSkyObserver',cameraFrame().eye);uv(p,'uSunDirection',skyFrame.sun);uv(p,'uMoonDirection',skyFrame.moon);uf(p,'uSunRadius',world.starRadiusDegrees*Math.PI/180);uf(p,'uMoonRadius',world.satelliteRadiusDegrees*Math.PI/180);uv(p,'uLightColor',skyFrame.lightColor);uv(p,'uSkyLightDirection',skyFrame.light);uv(p,'lightDirection',skyFrame.light);uf(p,'uDaylight',skyFrame.daylight);uf(p,'uSkyAmbient',skyFrame.ambient);uf(p,'uStarAngle',skyFrame.phase);uf(p,'uLatitude',skyFrame.latitude);bind(starTexture,12);ui(p,'uStars',12);}
+function skyUniforms(p,c,observer=c.eye){uf(p,'uSkyPixelAngle',2*Math.tan(opticalFov*Math.PI/360)/canvas.height);uf(p,'uWorldSeed',world.seed%65536);uf(p,'uCloudAmount',cloudAmount);uf(p,'uCloudTime',world.elapsedDays*world.daySeconds);uv(p,'uSkyObserver',observer);uv(p,'uSunDirection',skyFrame.sun);uv(p,'uMoonDirection',skyFrame.moon);uf(p,'uSunRadius',world.starRadiusDegrees*Math.PI/180);uf(p,'uMoonRadius',world.satelliteRadiusDegrees*Math.PI/180);uv(p,'uLightColor',skyFrame.lightColor);uv(p,'uSkyLightDirection',skyFrame.light);uv(p,'lightDirection',skyFrame.light);uf(p,'uDaylight',skyFrame.daylight);uf(p,'uSkyAmbient',skyFrame.ambient);uf(p,'uStarAngle',skyFrame.phase);uf(p,'uLatitude',skyFrame.latitude);bind(starTexture,12);ui(p,'uStars',12);}
 function updateCloudCache(c){
  if(cloudAmount<=0||!cloudReuse)return;
  const width={eco:128,balanced:256,detail:384}[state.quality];
  if(width!==cloudWidth){if(cloudTexture)gl.deleteTexture(cloudTexture);cloudWidth=width;cloudTexture=texture(width,width/2,state.hdr?gl.RGBA16F:gl.RGBA8,gl.RGBA,state.hdr?gl.HALF_FLOAT:gl.UNSIGNED_BYTE,null);if(!cloudFbo)cloudFbo=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,cloudFbo);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,cloudTexture,0);gl.drawBuffers([gl.COLOR_ATTACHMENT0]);checkFbo('de nubes');cloudKey='';}
- const key=JSON.stringify([world.seed,world.moonPhase,world.moonPeriod,world.latitude,cloudAmount,Math.floor(world.elapsedDays*world.daySeconds*4),...c.eye]);
- if(key===cloudKey)return;
+ // A flown camera can move every frame. Snap the panorama origin while keeping the scene camera continuous.
+ const cell=[4,12,4];
+ const observer=flight?c.eye.map((position,i)=>Math.round(position/cell[i])*cell[i]):c.eye;
+ const key=JSON.stringify([world.seed,world.moonPhase,world.moonPeriod,world.latitude,cloudAmount,Math.floor(world.elapsedDays*world.daySeconds*4)]);
+ if(key===cloudKey){
+  if(observer.every((value,i)=>value===cloudOrigin[i]))return;
+  if(flight&&state.time-cloudBuiltAt<.12)return;
+ }
  // The cloud pass never samples its own target.
- bind(visibilityTexture,13);gl.bindFramebuffer(gl.FRAMEBUFFER,cloudFbo);gl.viewport(0,0,width,width/2);gl.disable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);gl.disable(gl.BLEND);gl.useProgram(programs.cloud.id);skyUniforms(programs.cloud);gl.bindVertexArray(emptyVAO);gl.drawArrays(gl.TRIANGLES,0,3);cloudKey=key;cloudBuilds++;
+ bind(visibilityTexture,13);gl.bindFramebuffer(gl.FRAMEBUFFER,cloudFbo);gl.viewport(0,0,width,width/2);gl.disable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);gl.disable(gl.BLEND);gl.useProgram(programs.cloud.id);skyUniforms(programs.cloud,c,observer);gl.bindVertexArray(emptyVAO);gl.drawArrays(gl.TRIANGLES,0,3);cloudKey=key;cloudOrigin=observer;cloudBuiltAt=state.time;cloudBuilds++;
 }
 function render(){if(!state.ready||gl.isContextLost())return;
  climate=climateAt(state.season,state.weather,world.elapsedDays);
@@ -362,11 +430,11 @@ function render(){if(!state.ready||gl.isContextLost())return;
  if(state.weather!=='clear'&&windStep!==shadowWindStep){shadowWindStep=windStep;shadowDirty=true;}
  resize();skyFrame=celestialFrame(world);const cloudLight=cloudTransmission(world,skyFrame.light,cloudAmount);skyFrame.lightColor=skyFrame.lightColor.map(x=>x*cloudLight);skyFrame.ambient*=.5+.5*cloudLight;const range=state.scene==='biomes'?64:state.scene==='building'?12:32;lightVP=math.mul(math.ortho(-range,range,-range,range,.1,200),math.look(math.scale(skyFrame.light,100),[0,0,0]));const c=cameraFrame();uploadSceneMeshes(c);updateCloudCache(c);gl.enable(gl.DEPTH_TEST);gl.enable(gl.CULL_FACE);gl.disable(gl.BLEND);
  if(state.shadows&&shadowDirty){gl.bindFramebuffer(gl.FRAMEBUFFER,shadowFbo);gl.viewport(0,0,shadowSize,shadowSize);gl.clear(gl.DEPTH_BUFFER_BIT);let p=programs.shadow;gl.useProgram(p.id);um(p,'uVP',lightVP);uf(p,'uTime',state.time);uf(p,'uWind',climate.wind);gl.enable(gl.POLYGON_OFFSET_FILL);gl.polygonOffset(2,4);drawGroups();gl.disable(gl.POLYGON_OFFSET_FILL);shadowDirty=false;}
- gl.bindFramebuffer(gl.FRAMEBUFFER,sceneFbo);gl.viewport(0,0,canvas.width,canvas.height);gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);let p=programs.material;gl.useProgram(p.id);skyUniforms(p);um(p,'uVP',c.vp);um(p,'uView',c.v);um(p,'uLightVP',lightVP);uv(p,'uEye',c.eye);uf(p,'uTime',state.time);uf(p,'uWind',climate.wind);uv(p,'uClimate',[climate.autumn,climate.frost,climate.wet]);uf(p,'uWetTime',state.waveTime);uf(p,'uWaveStrength',state.waveStrength);uf(p,'uFogDensity',.0025);uf(p,'uTerrainSeed',world.seed%65536);ui(p,'uShadows',state.shadows);ui(p,'uShadowSoft',state.shadowSoft);ui(p,'uNatural',1);ui(p,'uMaterials',state.materials);ui(p,'uWet',state.scene==='shore'&&state.water&&state.waterMode==='lake');ui(p,'uVisibilityEnabled',0);bind(shadowTexture,0);bind(visibilityTexture,11);ui(p,'uShadow',0);materialTextures.forEach((t,i)=>bind(t,5+i));drawGroups();
+ gl.bindFramebuffer(gl.FRAMEBUFFER,sceneFbo);gl.viewport(0,0,canvas.width,canvas.height);gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);let p=programs.material;gl.useProgram(p.id);skyUniforms(p,c);um(p,'uVP',c.vp);um(p,'uView',c.v);um(p,'uLightVP',lightVP);uv(p,'uEye',c.eye);uf(p,'uTime',state.time);uf(p,'uWind',climate.wind);uv(p,'uClimate',[climate.autumn,climate.frost,climate.wet]);uf(p,'uWetTime',state.waveTime);uf(p,'uWaveStrength',state.waveStrength);uf(p,'uFogDensity',.0025/(1+(flight?Math.max(0,c.eye[1]-35)/340:0)));uf(p,'uTerrainSeed',world.seed%65536);ui(p,'uShadows',state.shadows);ui(p,'uShadowSoft',state.shadowSoft);ui(p,'uNatural',1);ui(p,'uMaterials',state.materials);ui(p,'uWet',state.scene==='shore'&&state.water&&state.waterMode==='lake');ui(p,'uVisibilityEnabled',0);bind(shadowTexture,0);bind(visibilityTexture,11);ui(p,'uShadow',0);materialTextures.forEach((t,i)=>bind(t,5+i));drawGroups();
  if(state.water&&state.scene==='shore')drawWater(c);
- gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.disable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);p=programs.composite;gl.useProgram(p.id);skyUniforms(p);bind(cloudTexture||visibilityTexture,13);ui(p,'uCloudMap',13);ui(p,'uCloudCached',cloudReuse&&cloudAmount>0);for(let i=0;i<4;i++)bind(targets[[0,1,3,2][i]],i);bind(waterDepth,4);ui(p,'uWaterDepth',4);ui(p,'uContact',state.hdr&&state.contact);ui(p,'uWater',state.water&&state.scene==='shore');ui(p,'uWaterSSR',state.ssr&&state.water);ui(p,'uUnderwater',state.underwater&&state.water);setWaterUniforms(p);ui(p,'uContactCount',waterContacts.length/3);
+ gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.disable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);p=programs.composite;gl.useProgram(p.id);skyUniforms(p,c);bind(cloudTexture||visibilityTexture,13);ui(p,'uCloudMap',13);ui(p,'uCloudCached',cloudReuse&&cloudAmount>0);for(let i=0;i<4;i++)bind(targets[[0,1,3,2][i]],i);bind(waterDepth,4);ui(p,'uWaterDepth',4);ui(p,'uContact',state.hdr&&state.contact);ui(p,'uWater',state.water&&state.scene==='shore');ui(p,'uWaterSSR',state.ssr&&state.water);ui(p,'uUnderwater',state.underwater&&state.water);setWaterUniforms(p);ui(p,'uContactCount',waterContacts.length/3);
  if(waterContacts.length)gl.uniform3fv(loc(p,'uWaterContacts[0]'),waterContacts);
- if(state.water&&state.waterMode!=='lake')gl.uniform3fv(loc(p,'uDrift[0]'),driftSamples(state.waterMode,state.time));uf(p,'uExposure',1);uf(p,'uTurbidity',turbidity);ui(p,'uAA',1);uv(p,'uCameraEye',c.eye);uv(p,'uCameraRight',c.right);uv(p,'uCameraUp',c.up);uv(p,'uCameraForward',c.forward);gl.uniform2f(loc(p,'uProjectionScale'),c.p[0],c.p[5]);gl.bindVertexArray(emptyVAO);gl.drawArrays(gl.TRIANGLES,0,3);drawGlass(c);drawWeather(c);state.frames++;
+ if(state.water&&state.waterMode!=='lake')gl.uniform3fv(loc(p,'uDrift[0]'),driftSamples(state.waterMode,state.time));uf(p,'uExposure',1);uf(p,'uTurbidity',turbidity);ui(p,'uAA',1);uv(p,'uCameraEye',c.eye);uv(p,'uCameraRight',c.right);uv(p,'uCameraUp',c.up);uv(p,'uCameraForward',c.forward);gl.uniform2f(loc(p,'uProjectionScale'),c.p[0],c.p[5]);gl.uniform2f(loc(p,'uDepthRange'),...c.depthRange);gl.bindVertexArray(emptyVAO);gl.drawArrays(gl.TRIANGLES,0,3);drawGlass(c);drawWeather(c);state.frames++;
  if(state.frames<4||params.has('test')){let error=gl.getError();if(error!==gl.NO_ERROR)throw Error('Error gráfico WebGL '+error);}
  if(capturePending){capturePending=false;canvas.toBlob(b=>{if(b)download(b,'Pleiade-tablet-'+state.scene+'.png');else toast('El navegador no ha podido guardar la imagen.');});}
 }
@@ -382,7 +450,7 @@ function tick(now){
   world.elapsedDays+=dt/world.daySeconds;shadowDirty=true;syncSkyUI();
   if(now-lastSaved>5000){saveWorld();lastSaved=now;}
  }
- try{render();}catch(e){fail(e);return;}
+ try{advanceFlight(dt);render();}catch(e){fail(e);return;}
  statFrames++;
  if(now-statTime>=1000){state.fps=statFrames*1000/(now-statTime);$('fps').textContent=state.fps.toFixed(0)+' FPS';statFrames=0;statTime=now;}
 }
@@ -399,13 +467,13 @@ function download(blob,name){
  setTimeout(()=>URL.revokeObjectURL(url),30000);
  toast('Descarga solicitada: '+name);
 }
-function report(){return {viewer:VERSION,desktopBase:'0.003.0.17',browser:navigator.userAgent,screen:{width:innerWidth,height:innerHeight,dpr:devicePixelRatio},render:{width:canvas.width,height:canvas.height,shadow:shadowSize,shadowDepthMiB:shadowSize*shadowSize*4/1048576,trianglesPerPass:submittedTriangles,needleBundles,foliageBundles,shadowFilter:state.shadowSoft?'continuous-tent-9':'box-9',hdr:state.hdr},settings:{...state},glassPanes:glassGroup?.instances??0,shore:state.scene==='shore'?{mode:state.waterMode,width:watershed.area,contacts:waterContacts.length/3}:null,climate:{...climate},detached:detached?.pieces.size??0,biome:state.scene==='biomes'?{seed:world.seed,plants:activeBiome.plants,rocks:activeBiome.rocks,trees:activeBiome.trees,understory:activeBiome.understory,tiles:activeBiome.terrain.pieces.length,vines:activeBiome.vines}:null,celestial:{seed:world.seed,elapsedDays:world.elapsedDays,daySeconds:world.daySeconds,running:skyRunning,cloudAmount,flightAltitude,opticalFov,turbidity},camera,capabilities:{webgl:gl?gl.getParameter(gl.VERSION):null,maxTextureSize:gl?gl.getParameter(gl.MAX_TEXTURE_SIZE):null},cloudCache:{enabled:cloudReuse,width:cloudWidth,height:cloudWidth/2,updates:cloudBuilds,estimatedMiB:cloudWidth*cloudWidth/2*(state.hdr?8:4)/1048576},memoryPolicy:{budgetMiB:4096,kind:'design ceiling, not measured browser allocation'},note:'FPS de presentación del navegador; no es tiempo GPU ni un benchmark de la RTX.'};}
+function report(){return {viewer:VERSION,desktopBase:'0.003.0.17',browser:navigator.userAgent,screen:{width:innerWidth,height:innerHeight,dpr:devicePixelRatio},render:{width:canvas.width,height:canvas.height,shadow:shadowSize,shadowDepthMiB:shadowSize*shadowSize*4/1048576,trianglesPerPass:submittedTriangles,needleBundles,foliageBundles,shadowFilter:state.shadowSoft?'continuous-tent-9':'box-9',hdr:state.hdr},settings:{...state},glassPanes:glassGroup?.instances??0,shore:state.scene==='shore'?{mode:state.waterMode,width:watershed.area,contacts:waterContacts.length/3}:null,climate:{...climate},detached:detached?.pieces.size??0,biome:state.scene==='biomes'?{seed:world.seed,plants:activeBiome.plants,rocks:activeBiome.rocks,trees:activeBiome.trees,understory:activeBiome.understory,tiles:activeBiome.terrain.pieces.length,vines:activeBiome.vines}:null,celestial:{seed:world.seed,elapsedDays:world.elapsedDays,daySeconds:world.daySeconds,running:skyRunning,cloudAmount,flightAltitude,opticalFov,turbidity},camera,flight:flight?{eye:[...flight.eye],yaw:flight.yaw,pitch:flight.pitch,depthRange:flightLimits(flight.eye[1])}:null,capabilities:{webgl:gl?gl.getParameter(gl.VERSION):null,maxTextureSize:gl?gl.getParameter(gl.MAX_TEXTURE_SIZE):null},cloudCache:{enabled:cloudReuse,width:cloudWidth,height:cloudWidth/2,updates:cloudBuilds,estimatedMiB:cloudWidth*cloudWidth/2*(state.hdr?8:4)/1048576},memoryPolicy:{budgetMiB:4096,kind:'design ceiling, not measured browser allocation'},note:'FPS de presentación del navegador; no es tiempo GPU ni un benchmark de la RTX.'};}
 function setupUI(){
  $('biome').onchange=()=>useBiome($('biome').value);
  $('water-mode').onchange=()=>setWaterMode($('water-mode').value);
  $('building-form').onchange=()=>setBuildingForm($('building-form').value);
  $('dive').onclick=()=>{if(state.scene==='shore'){
-  state.underwater=!state.underwater;skyView=false;
+  endFlight();state.underwater=!state.underwater;skyView=false;
   $('dive').textContent=state.underwater?'Volver a la superficie':'Mirar bajo el agua';
  }};
  for(const id of ['season','weather'])$(id).onchange=()=>setClimate($('season').value,$('weather').value);
@@ -430,9 +498,9 @@ function setupUI(){
  $('turbidity').oninput=()=>{turbidity=Number($('turbidity').value);};
  $('cloud-reuse').onchange=()=>{cloudReuse=$('cloud-reuse').checked;};
  $('clouds').oninput=()=>{cloudAmount=Number($('clouds').value);};
- $('flight-altitude').oninput=()=>{flightAltitude=Number($('flight-altitude').value);skyView=true;$('altitude-label').textContent=flightAltitude+' m';};
+ $('flight-altitude').oninput=()=>{endFlight();flightAltitude=Number($('flight-altitude').value);skyView=true;$('altitude-label').textContent=flightAltitude+' m';};
  $('optical-fov').oninput=()=>{opticalFov=Number($('optical-fov').value);};
- $('look-sky').onclick=()=>{skyView=!skyView;camera.pitch=.45;};
+ $('look-sky').onclick=()=>{endFlight();skyView=!skyView;camera.pitch=.45;};
  $('sky-run').onchange=()=>{skyRunning=$('sky-run').checked;saveWorld();};
  $('sky-hour').oninput=()=>{world.elapsedDays=Math.floor(world.elapsedDays)+Number($('sky-hour').value)/24;shadowDirty=true;syncSkyUI();saveWorld();};
  $('new-world').onclick=()=>{const seed=Number($('world-seed').value);if(!Number.isInteger(seed)||seed<0||seed>4294967295){toast('Usa una semilla entera entre 0 y 4294967295.');return;}saveWorld();applyWorld(generateWorld(seed));toast('Cielo generado. Exporta cada mundo que quieras conservar.');};
@@ -442,20 +510,60 @@ function setupUI(){
  else{worldPicker.onchange=async()=>{const file=worldPicker.files[0];if(!file)return;try{if(file.size>1000000)throw Error('Archivo demasiado grande.');importWorldText(await file.text());}catch(e){toast(e.message);}finally{worldPicker.value='';}};}
  window.addEventListener('pagehide',saveWorld);
 
- const panel=open=>{$('panel').hidden=!open;$('settings').setAttribute('aria-expanded',open);};$('settings').onclick=()=>panel($('panel').hidden);$('close-panel').onclick=()=>panel(false);
+ const panel=open=>{if(open)clearFlightInputs();$('panel').hidden=!open;$('settings').setAttribute('aria-expanded',open);};$('settings').onclick=()=>panel($('panel').hidden);$('close-panel').onclick=()=>panel(false);
  $('reset').onclick=resetCamera;$('plus').onclick=()=>camera.distance=Math.max(3,camera.distance*.83);$('minus').onclick=()=>camera.distance=Math.min(48,camera.distance*1.2);$('height').onclick=()=>{camera.pitch=camera.pitch>.65?.28:.95;camera.distance=camera.pitch>.65?28:15;};
  document.querySelectorAll('[data-scene]').forEach(b=>b.onclick=()=>{if(state.ready)useScene(b.dataset.scene);});
  for(const name of ['materials','shadows','shadowSoft','water','ssr','contact','animation'])$(name).onchange=()=>{state[name]=$(name).checked;};
  $('waves').onchange=()=>{state.waveStrength=Number($('waves').value);};
  $('quality').onchange=()=>setQuality($('quality').value);
  $('capture').onclick=()=>{if(!state.ready){toast('La escena aún no está disponible.');return;}capturePending=true;if(state.paused)render();};$('report').onclick=()=>download(new Blob([JSON.stringify(report(),null,2)],{type:'application/json'}),'Pleiade-tablet-informe.json');
- const pointers=new Map();let gesture=null;
+ $('fly').onclick=()=>{panel(false);if(flight)endFlight(true);else beginFlight();};
+ $('flight-return').onclick=()=>endFlight(true);
+ const movement={KeyW:'forward',KeyS:'back',KeyA:'left',KeyD:'right',KeyE:'rise',KeyQ:'sink'};
+ window.addEventListener('keydown',event=>{
+  if(!flight)return;
+  if(event.code==='Escape'){endFlight(true);return;}
+  if(!$('panel').hidden||event.target?.matches?.('input,select,textarea,[contenteditable]'))return;
+  const command=movement[event.code];
+  if(command){event.preventDefault();flightKeys.add(command);}
+ });
+ window.addEventListener('keyup',event=>flightKeys.delete(movement[event.code]));
+ for(const command of flightCommands){
+  const button=$('fly-'+command);
+  button.onpointerdown=event=>{
+   if(!flight||event.button!==0)return;
+   button.setPointerCapture(event.pointerId);flightButtons.set(event.pointerId,command);
+  };
+  const release=event=>flightButtons.delete(event.pointerId);
+  button.onpointerup=button.onpointercancel=button.onlostpointercapture=release;
+ }
  const snapshot=()=>{let p=[...pointers.values()];return p.length>1?{x:(p[0].x+p[1].x)/2,y:(p[0].y+p[1].y)/2,d:Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y),n:p.length}:p.length?{...p[0],n:1}:null;};
  canvas.onpointerdown=e=>{if(!state.ready)return;canvas.setPointerCapture(e.pointerId);pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});gesture=snapshot();};
- canvas.onpointermove=e=>{if(!pointers.has(e.pointerId))return;pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});const next=snapshot();if(gesture&&next.n===gesture.n){let dx=next.x-gesture.x,dy=next.y-gesture.y;if(next.n===1){camera.yaw-=dx*.006;camera.pitch=Math.max(skyView?-1.4:.07,Math.min(1.4,camera.pitch+dy*.006));}else{camera.distance=Math.max(3,Math.min(48,camera.distance*(gesture.d/Math.max(5,next.d))));const c=cameraFrame(),speed=camera.distance*.0015;camera.target=math.add(camera.target,math.add(math.scale(c.right,-dx*speed),math.scale([c.forward[0],0,c.forward[2]],dy*speed)));const edge=state.scene==='biomes'?43:state.scene==='shore'?38:15;camera.target[0]=Math.max(-edge,Math.min(edge,camera.target[0]));camera.target[2]=Math.max(-edge,Math.min(edge,camera.target[2]));if(state.scene==='biomes')camera.target[1]=activeBiome.height(camera.target[0],camera.target[2])+1;else if(state.scene==='shore')camera.target[1]=Math.max(.5,watershed.height(camera.target[0],camera.target[2])+.70);}}gesture=next;};
- const release=e=>{pointers.delete(e.pointerId);gesture=snapshot();};canvas.onpointerup=release;canvas.onpointercancel=release;canvas.onlostpointercapture=release;window.addEventListener('blur',()=>{pointers.clear();gesture=null;});canvas.addEventListener('wheel',e=>{e.preventDefault();camera.distance=Math.max(3,Math.min(48,camera.distance*Math.exp(e.deltaY*.001)));},{passive:false});
- canvas.addEventListener('keydown',e=>{if(e.key.startsWith('Arrow'))e.preventDefault();if(e.key==='ArrowLeft')camera.yaw+=.1;if(e.key==='ArrowRight')camera.yaw-=.1;if(e.key==='ArrowUp')camera.pitch=Math.min(1.4,camera.pitch+.1);if(e.key==='ArrowDown')camera.pitch=Math.max(skyView?-1.4:.07,camera.pitch-.1);});
- document.addEventListener('visibilitychange',()=>{lastTime=0;lastFrame=0;statTime=performance.now();statFrames=0;$('state').textContent=document.hidden?'En pausa':'Local';});
+ canvas.onpointermove=e=>{
+  if(!pointers.has(e.pointerId))return;
+  pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  const next=snapshot(),previous=gesture;
+  gesture=next;
+  if(!previous||next.n!==previous.n)return;
+  const dx=next.x-previous.x,dy=next.y-previous.y;
+  if(next.n===1){
+   const view=flight||camera, pitchLimit=flight?1.5:1.4;
+   view.yaw-=dx*.006;
+   view.pitch=Math.max(flight||skyView?-pitchLimit:.07,Math.min(pitchLimit,view.pitch+dy*.006));
+   return;
+  }
+  if(flight)return;
+  camera.distance=Math.max(3,Math.min(48,camera.distance*(previous.d/Math.max(5,next.d))));
+  const c=cameraFrame(),speed=camera.distance*.0015;
+  camera.target=math.add(camera.target,math.add(math.scale(c.right,-dx*speed),math.scale([c.forward[0],0,c.forward[2]],dy*speed)));
+  const edge=state.scene==='biomes'?43:state.scene==='shore'?38:15;
+  camera.target[0]=Math.max(-edge,Math.min(edge,camera.target[0]));camera.target[2]=Math.max(-edge,Math.min(edge,camera.target[2]));
+  if(state.scene==='biomes')camera.target[1]=activeBiome.height(camera.target[0],camera.target[2])+1;
+  else if(state.scene==='shore')camera.target[1]=Math.max(.5,watershed.height(camera.target[0],camera.target[2])+.70);
+ };
+ const release=e=>{pointers.delete(e.pointerId);gesture=snapshot();};canvas.onpointerup=release;canvas.onpointercancel=release;canvas.onlostpointercapture=release;window.addEventListener('blur',clearPointerState);canvas.addEventListener('wheel',e=>{e.preventDefault();if(flight)return;camera.distance=Math.max(3,Math.min(48,camera.distance*Math.exp(e.deltaY*.001)));},{passive:false});
+ canvas.addEventListener('keydown',e=>{if(flight)return;if(e.key.startsWith('Arrow'))e.preventDefault();if(e.key==='ArrowLeft')camera.yaw+=.1;if(e.key==='ArrowRight')camera.yaw-=.1;if(e.key==='ArrowUp')camera.pitch=Math.min(1.4,camera.pitch+.1);if(e.key==='ArrowDown')camera.pitch=Math.max(skyView?-1.4:.07,camera.pitch-.1);});
+ document.addEventListener('visibilitychange',()=>{clearPointerState();lastTime=0;lastFrame=0;statTime=performance.now();statFrames=0;$('state').textContent=document.hidden?'En pausa':'Local';});
  canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();state.ready=false;state.errors.push('WebGL context lost');cancelAnimationFrame(frameRequest);$('status').hidden=false;$('status').querySelector('h2').textContent='La GPU ha pausado el visor';$('load-status').textContent='El navegador ha liberado la escena. Puedes recargar para continuar.';$('status').querySelector('.loader').hidden=true;$('retry').hidden=false;$('state').textContent='Pausado';});
  canvas.addEventListener('webglcontextrestored',()=>location.reload());
 }
@@ -488,7 +596,7 @@ async function start(){setupUI();$('quality').value=state.quality;gl=canvas.getC
  for(const name of ['ground','bark','rock']){let bytes=new Uint8Array(await fetchData('assets/'+name+'.rgba','buffer'));for(let i=0;i<2;i++){let t=texture(512,512,i===0?gl.SRGB8_ALPHA8:gl.RGBA8,gl.RGBA,gl.UNSIGNED_BYTE,bytes.subarray(i*512*512*4,(i+1)*512*512*4),true);gl.generateMipmap(gl.TEXTURE_2D);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);materialTextures.push(t);}}
  gl.useProgram(programs.material.id);['uGroundColor','uGroundNormal','uBarkColor','uBarkNormal','uRockColor','uRockNormal'].forEach((name,i)=>ui(programs.material,name,5+i));ui(programs.material,'uVisibility',11);visibilityTexture=texture(1,1,gl.RGBA8,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([255,255,255,255]));bind(visibilityTexture,11);
  gl.useProgram(programs.composite.id);['uDirect','uAmbient','uDepth','uNormal'].forEach((n,i)=>ui(programs.composite,n,i));emptyVAO=gl.createVertexArray();sceneFbo=gl.createFramebuffer();shadowFbo=gl.createFramebuffer();waterFbo=gl.createFramebuffer();resizeShadow();resize();uploadStars();useScene('shore');state.ready=true;render();$('status').hidden=true;$('state').textContent='Local';statTime=performance.now();frameRequest=requestAnimationFrame(tick);
- window.pleiade={state,report,render,gl,useScene,useBiome,setWaterMode,setBuildingForm,setClimate,impact,applyWorld,importWorldText,get world(){return world;},setAtmosphere({clouds=0,altitude=2,fov=62,reuse=true}={}){cloudReuse=reuse;cloudAmount=Math.max(0,Math.min(1,clouds));flightAltitude=Math.max(2,Math.min(6000,altitude));opticalFov=Math.max(8,Math.min(75,fov));skyView=true;},get camera(){return camera;},setQuality,setTime(t){state.paused=true;state.time=state.waveTime=t;render();},readPixels(){render();const p=new Uint8Array(canvas.width*canvas.height*4);gl.readPixels(0,0,canvas.width,canvas.height,gl.RGBA,gl.UNSIGNED_BYTE,p);return p;}};
+ window.pleiade={state,report,render,gl,useScene,useBiome,setWaterMode,setBuildingForm,setClimate,impact,applyWorld,importWorldText,get world(){return world;},setAtmosphere({clouds=0,altitude=2,fov=62,reuse=true}={}){endFlight();cloudReuse=reuse;cloudAmount=Math.max(0,Math.min(1,clouds));flightAltitude=Math.max(2,Math.min(ceiling,altitude));opticalFov=Math.max(8,Math.min(75,fov));skyView=true;},get camera(){return camera;},setQuality,setTime(t){state.paused=true;state.time=state.waveTime=t;render();},readPixels(){render();const p=new Uint8Array(canvas.width*canvas.height*4);gl.readPixels(0,0,canvas.width,canvas.height,gl.RGBA,gl.UNSIGNED_BYTE,p);return p;}};
  if(params.has('test'))import('./test.js').then(m=>m.run(window.pleiade)).catch(fail);
 }
 start().catch(fail);

@@ -64,7 +64,7 @@ float channelFoam(vec2 p,float slope,float footprint){
 bool waterSurface(vec2 screen,out vec3 result,out float coverage){
  if(uWater==0)return false;
  float depth=texture(uDepth,screen).r,surfaceDepth=texture(uWaterDepth,screen).r;
- if(surfaceDepth>=.999999||surfaceDepth>=depth-.0000002)return false;
+ if(surfaceDepth>=.999999||cameraDepth(surfaceDepth)>=cameraDepth(depth)-.002)return false;
  vec3 point=fromView(viewPosition(screen,surfaceDepth));
  float slope=waterSlope(point.z);
  vec3 wave=waveField(point.xz);

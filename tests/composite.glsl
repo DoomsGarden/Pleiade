@@ -11,8 +11,13 @@ uniform sampler2D uNormal;uniform int uContact;uniform vec2 uProjectionScale;
 uniform int uWater,uWaterSSR;uniform float uWaterTime;uniform float uWaveStrength;
 uniform vec3 uCameraEye,uCameraRight,uCameraUp,uCameraForward;
 // Perspective reconstruction uses Camera's shared 0.1 / 250.0 metre clipping planes.
+uniform vec2 uDepthRange;
+float cameraDepth(float depth){
+ return uDepthRange.x*uDepthRange.y/(uDepthRange.x+(1.0-depth)*(uDepthRange.y-uDepthRange.x));
+}
+
 vec3 viewPosition(vec2 p,float depth){
- float z=(2.0*.1*250.0)/(250.0+.1-(depth*2.0-1.0)*(250.0-.1));
+ float z=cameraDepth(depth);
  return vec3((p*2.0-1.0)*z/uProjectionScale,-z);
 }
 float ambientContact(vec2 p){
@@ -231,7 +236,9 @@ vec4 cachedCloud(vec3 direction){
 }
 vec3 cloudSky(vec3 background,vec3 origin,vec3 direction){
  if(uCloudAmount<=0.0)return background;
- vec4 cloud=uCloudCached!=0?cachedCloud(direction):cloudVolume(origin,direction);
+ // Reflections viewed from high above the surface sample the clouds from the shading point.
+ bool nearObserver=abs(origin.y-uSkyObserver.y)<96.0;
+ vec4 cloud=uCloudCached!=0&&nearObserver?cachedCloud(direction):cloudVolume(origin,direction);
  return cloud.rgb+background*cloud.a;
 }
 vec3 celestialSky(vec3 direction){
@@ -291,8 +298,8 @@ bool waterReflection(vec3 origin,vec3 direction,out vec2 hitUV,out float confide
  vec3 start=toView(origin);
  vec3 dir=vec3(dot(direction,uCameraRight),dot(direction,uCameraUp),-dot(direction,uCameraForward));
  float reach=35.0;
- if(dir.z>.00001)reach=min(reach,(-.12-start.z)/dir.z);
- if(reach<=.05||start.z>=-.1)return false;
+ if(dir.z>.00001)reach=min(reach,(-uDepthRange.x-.02-start.z)/dir.z);
+ if(reach<=.05||start.z>=-uDepthRange.x)return false;
  vec3 finish=start+dir*reach;
  float k0=1.0/(-start.z),k1=1.0/(-finish.z);
  vec3 q0=start*k0,q1=finish*k1;
@@ -404,7 +411,7 @@ float channelFoam(vec2 p,float slope,float footprint){
 bool waterSurface(vec2 screen,out vec3 result,out float coverage){
  if(uWater==0)return false;
  float depth=texture(uDepth,screen).r,surfaceDepth=texture(uWaterDepth,screen).r;
- if(surfaceDepth>=.999999||surfaceDepth>=depth-.0000002)return false;
+ if(surfaceDepth>=.999999||cameraDepth(surfaceDepth)>=cameraDepth(depth)-.002)return false;
  vec3 point=fromView(viewPosition(screen,surfaceDepth));
  float slope=waterSlope(point.z);
  vec3 wave=waveField(point.xz);

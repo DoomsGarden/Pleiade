@@ -4,6 +4,7 @@ import {terrainPieces} from '../dist/biomes.js';
 import {climateAt} from '../dist/climate.js';
 import {channel,waterBase,createWatershed,driftSamples} from '../dist/watershed.js';
 import {plantContact} from '../dist/plant_contact.js';
+import {fly} from '../dist/flight.js';
 let id=0,boundFbo=null,activeUnit=0,currentProgram=null;const attachments=new Map(),textures=new Map(),buffers=new Map();let drawCalls=0;const uniformWrites=new Map();
 const constants=new Map();const mk=()=>({id:++id});const methods={NO_ERROR:0,
  createFramebuffer:()=>{const f=mk();attachments.set(f,new Set());return f;},bindFramebuffer:(_,f)=>boundFbo=f,
@@ -12,6 +13,7 @@ const constants=new Map();const mk=()=>({id:++id});const methods={NO_ERROR:0,
  linkProgram:p=>{for(const s of p.shaders)for(const m of s.source.matchAll(/uniform sampler2D(?:Array)? (\w+)/g))p.samplers.set(m[1],0);},getShaderParameter:()=>true,getProgramParameter:()=>true,
  getUniformLocation:(p,n)=>({p,n}),uniform1i:(l,v)=>{uniformWrites.set(l.n,v);if(l.p.samplers.has(l.n))l.p.samplers.set(l.n,v);},
  uniform1f:(l,v)=>{assert(Number.isFinite(v));uniformWrites.set(l.n,v);},uniform3fv:(l,v)=>{assert((l.n==='uWaterContacts[0]'?v.length%3===0:v.length===(l.n==='uDrift[0]'?30:3))&&Array.from(v).every(Number.isFinite));uniformWrites.set(l.n,[...v]);},
+ uniform2f:(l,a,b)=>{assert(Number.isFinite(a)&&Number.isFinite(b));uniformWrites.set(l.n,[a,b]);},
  uniformMatrix4fv:(_,__,m)=>assert(m.length===16&&Array.from(m).every(Number.isFinite),'finite matrix'),
  useProgram:p=>currentProgram=p,drawElementsInstanced:(_,count,__,___,n)=>{assert(count>0&&n>0);draw();},drawArrays:()=>draw(),drawElements:()=>draw(),
  getParameter:p=>p===gl.VERSION?'MOCK (not a GPU)':4096,getError:()=>0,isContextLost:()=>false,getExtension:()=>({}),checkFramebufferStatus:()=>gl.FRAMEBUFFER_COMPLETE,
@@ -21,7 +23,7 @@ const gl=new Proxy(methods,{get(t,p){if(p in t)return t[p];if(/^[A-Z_0-9]+$/.tes
 const elements=new Map();function el(id){if(!elements.has(id))elements.set(id,{id,hidden:false,checked:true,value:'balanced',width:0,height:0,textContent:'',dataset:{},listeners:{},style:{},classList:{toggle(){}},setAttribute(){},querySelector(){return el('child-'+id)},addEventListener(n,f){this.listeners[n]=f},getContext(){return gl},setPointerCapture(){}});return elements.get(id);}
 const buttons=['shore','materials','building','biomes'].map(name=>{const b=el(name);b.dataset.scene=name;return b;});
 globalThis.document={hidden:false,getElementById:el,querySelectorAll:()=>buttons,addEventListener(){}};
-globalThis.window=globalThis;globalThis.innerWidth=1200;globalThis.innerHeight=800;globalThis.devicePixelRatio=2;globalThis.location={search:''};globalThis.addEventListener=()=>{};let nextFrame;globalThis.requestAnimationFrame=callback=>{nextFrame=callback;return 1;};globalThis.cancelAnimationFrame=()=>{};
+globalThis.window=globalThis;globalThis.innerWidth=1200;globalThis.innerHeight=800;globalThis.devicePixelRatio=2;globalThis.location={search:''};const windowEvents={};globalThis.addEventListener=(type,listener)=>{windowEvents[type]=listener;};let nextFrame;globalThis.requestAnimationFrame=callback=>{nextFrame=callback;return 1;};globalThis.cancelAnimationFrame=()=>{};
 const androidFiles=[];
 const androidMock=process.env.PLEIADE_ANDROID_MOCK==='1';
 let openedWorld=false;
@@ -203,3 +205,77 @@ pleiade.setAtmosphere({clouds:.8,altitude:1200,reuse:false});pleiade.render();as
 pleiade.setAtmosphere({clouds:0});pleiade.render();assert.equal(pleiade.report().cloudCache.updates,built+1,'clear sky bypasses cache');
 pleiade.setAtmosphere({clouds:.8});pleiade.render();let count=pleiade.report().cloudCache.updates;pleiade.world.elapsedDays+=.3/pleiade.world.daySeconds;pleiade.render();assert.equal(pleiade.report().cloudCache.updates,count+1,'world clock invalidates');assert.equal(pleiade.report().cloudCache.width,256);
 console.log('PASS cloud-cache reuse, camera rotation, altitude/time invalidation, reference and disabled modes.');
+
+pleiade.useScene('shore');
+pleiade.render();
+const orbitEye=uniformWrites.get('uCameraEye'),orbitForward=uniformWrites.get('uCameraForward');
+el('fly').onclick();
+pleiade.render();
+assert.deepEqual(uniformWrites.get('uCameraEye'),orbitEye);
+assert.ok(orbitForward.every((v,i)=>Math.abs(v-uniformWrites.get('uCameraForward')[i])<1e-6));
+assert.deepEqual(uniformWrites.get('uDepthRange'),[.1,250]);
+const key=code=>({code,preventDefault(){}});
+pleiade.state.paused=false;
+nextFrame(325);
+windowEvents.keydown(key('KeyE'));
+nextFrame(350);
+assert(pleiade.report().flight.eye[1]>orbitEye[1]);
+windowEvents.blur();
+const afterBlur=pleiade.report().flight.eye;
+nextFrame(400);
+assert.deepEqual(pleiade.report().flight.eye,afterBlur);
+const rise=el('fly-rise'),finger={button:0,pointerId:5};
+rise.onpointerdown(finger);nextFrame(450);
+const afterTouch=pleiade.report().flight.eye;
+assert(afterTouch[1]>afterBlur[1]);
+rise.onpointercancel(finger);nextFrame(500);
+assert.deepEqual(pleiade.report().flight.eye,afterTouch);
+const savedYaw=pleiade.camera.yaw;
+canvas.onpointerdown({pointerId:19,clientX:200,clientY:200});
+canvas.onpointermove({pointerId:19,clientX:220,clientY:200});
+windowEvents.keydown(key('Escape'));
+canvas.onpointermove({pointerId:19,clientX:240,clientY:200});
+canvas.onpointerup({pointerId:19});
+assert.equal(pleiade.camera.yaw,savedYaw,'a flight drag cannot move the restored orbit camera');
+pleiade.render();
+assert.equal(pleiade.report().flight,null);
+assert.deepEqual(uniformWrites.get('uCameraEye'),orbitEye);
+pleiade.setAtmosphere({altitude:6000});
+el('fly').onclick();
+pleiade.render();
+assert.equal(pleiade.report().flight.eye[1],6000);
+const [nearDepth,farDepth]=uniformWrites.get('uDepthRange');
+assert(nearDepth>=100&&farDepth>6000);
+el('flight-return').onclick();pleiade.render();
+assert.equal(uniformWrites.get('uCameraEye')[1],6000,'return to previous sky inspection');
+assert.deepEqual(uniformWrites.get('uDepthRange'),[.1,250]);
+pleiade.useScene('shore');
+el('dive').onclick();pleiade.render();
+const diveEye=uniformWrites.get('uCameraEye');
+el('fly').onclick();pleiade.render();
+assert.equal(pleiade.state.underwater,false);
+assert(pleiade.report().flight.eye[1]>0);
+el('flight-return').onclick();pleiade.render();
+assert.equal(pleiade.state.underwater,true);
+assert.deepEqual(uniformWrites.get('uCameraEye'),diveEye);
+el('fly').onclick();
+pleiade.useScene('biomes');
+assert.equal(pleiade.report().flight,null);
+assert.equal(pleiade.state.underwater,false);
+const overRidge=fly([0,.65,0],Math.PI/2,[1,0,0],.25,45,(x)=>x>.7&&x<1.4?3:0);
+assert(overRidge[1]>3,'check intermediate ground heights as well as the destination');
+assert.equal(fly([44,5999,0],Math.PI/2,[1,0,1],.25,45,()=>0)[1],6000);
+assert.equal(fly([44,5999,0],Math.PI/2,[1,0,1],.25,45,()=>0)[0],45);
+pleiade.useScene('shore');
+pleiade.setAtmosphere({clouds:.5,altitude:1500});
+el('fly').onclick();pleiade.render();
+const startBuilds=pleiade.report().cloudCache.updates;
+windowEvents.keydown(key('KeyE'));
+for(let frame=1;frame<=30;frame++)nextFrame(550+frame*34);
+windowEvents.keyup(key('KeyE'));
+const builds=pleiade.report().cloudCache.updates-startBuilds;
+assert(builds>0&&builds<=8,'limit cloud rebuilds caused by camera motion');
+el('settings').onclick();
+windowEvents.keydown(key('Escape'));
+assert.equal(pleiade.report().flight,null,'Escape exits even with settings open');
+console.log('PASS: flight pose, keys and touch cancellation, terrain clearance, depth range, cloud update rate and view restoration.');

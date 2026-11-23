@@ -1,3 +1,11 @@
+# Candidato 0.000.00.019 — vuelo atmosférico
+
+- El visor permite volar con teclado y controles táctiles. La cámara parte de la vista actual, mantiene margen sobre terreno y agua y recupera la cámara anterior al salir.
+- La proyección y el shader de composición comparten la distancia de recorte. El agua, la refracción y el terreno conservan la profundidad al ganar altura.
+- La caché de nubes reutiliza el panorama durante desplazamientos cortos. El agua y el vidrio calculan las nubes desde la superficie cuando el observador está mucho más alto.
+
+---
+
 # Versión de prueba 0.000.00.018 — cámaras, cielo y escala
 
 - La base C++ incorpora un recorrido jugable en primera persona con simulación a 60 Hz, carrera, salto, escalones y colisión con los bloques del patio. La vista estratégica puede orbitar, seleccionar al explorador y dirigirlo por terreno navegable.
