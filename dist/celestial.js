@@ -1,16 +1,21 @@
 // Fictional sky format v1. Independent of browser time and the terrestrial catalogue.
 export const TAU=Math.PI*2;
+export const angularRadiusBounds=Object.freeze({min:.05,max:2});
+const defaultRadii={starRadiusDegrees:.006*180/Math.PI,satelliteRadiusDegrees:.007*180/Math.PI};
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 export function generateWorld(seed=12345){
  seed=Number(seed)>>>0;let s=seed;const rng=()=>{s=(s+0x6D2B79F5)|0;let t=Math.imul(s^s>>>15,1|s);t^=t+Math.imul(t^t>>>7,61|t);return ((t^t>>>14)>>>0)/4294967296;};
  const stars=Array.from({length:1800},()=>[rng()*TAU,Math.asin(rng()*2-1),.18+Math.pow(rng(),5)*.82,rng()]);
- return {format:'pleiade-sky',version:1,seed,name:'Mundo '+seed,elapsedDays:.5,daySeconds:720,latitude:.55,moonPeriod:19+rng()*12,moonPhase:rng()*TAU,stars};
+ return {format:'pleiade-sky',version:1,seed,name:'Mundo '+seed,elapsedDays:.5,daySeconds:720,latitude:.55,moonPeriod:19+rng()*12,moonPhase:rng()*TAU,...defaultRadii,stars};
 }
 export function validateWorld(w){
  if(!w||w.format!=='pleiade-sky'||w.version!==1||!Number.isInteger(w.seed)||w.seed<0||w.seed>4294967295||typeof w.name!=='string'||w.name.length>80)throw Error('Formato de mundo no compatible.');
  for(const [k,a,b]of[['elapsedDays',0,1e7],['daySeconds',60,86400],['latitude',-1.4,1.4],['moonPeriod',2,1000],['moonPhase',0,TAU]])if(!Number.isFinite(w[k])||w[k]<a||w[k]>b)throw Error('Parámetro celeste inválido: '+k);
  if(!Array.isArray(w.stars)||w.stars.length!==1800||w.stars.some(s=>!Array.isArray(s)||s.length!==4||s.some(x=>!Number.isFinite(x))||s[0]<0||s[0]>=TAU||Math.abs(s[1])>Math.PI/2||s[2]<0||s[2]>1||s[3]<0||s[3]>1))throw Error('Catálogo estelar inválido.');
- return structuredClone(w);
+ for(const key of Object.keys(defaultRadii)){
+  if(Object.hasOwn(w,key)&&(!Number.isFinite(w[key])||w[key]<angularRadiusBounds.min||w[key]>angularRadiusBounds.max))throw Error('Radio aparente fuera del rango permitido.');
+ }
+ return {...defaultRadii,...structuredClone(w)};
 }
 export function celestialFrame(w){
  const phase=(w.elapsedDays%1)*TAU,lat=w.latitude;

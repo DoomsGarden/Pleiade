@@ -44,7 +44,7 @@ inline bool useCoarseTerrain(const Camera &camera, float viewportHeight, V3 cent
     float nearestDepth = -p.z - length(half);
     if (nearestDepth <= terrainHeightDifferenceBound)
         return false;
-    float halfFov = (camera.strategy ? 48.f : 62.f) * pi / 360;
+    float halfFov = camera.verticalFov() * .5f;
     float focal = viewportHeight / (2 * std::tan(halfFov));
     // Conservative factor for vertical displacement affecting both view Y and Z.
     float projectedError =

@@ -94,8 +94,7 @@ inline M4 ortho(float l, float r, float b, float t, float n, float f) {
     m.at(2, 3) = -(f + n) / (f - n);
     return m;
 }
-inline M4 lookAt(V3 eye, V3 target, V3 up = {0, 1, 0}) {
-    V3 f = unit(target - eye), s = unit(cross(f, up)), u = cross(s, f);
+inline M4 viewFromBasis(V3 eye, V3 f, V3 s, V3 u) {
     M4 m = M4::identity();
     m.at(0, 0) = s.x;
     m.at(0, 1) = s.y;
@@ -110,6 +109,10 @@ inline M4 lookAt(V3 eye, V3 target, V3 up = {0, 1, 0}) {
     m.at(2, 2) = -f.z;
     m.at(2, 3) = dot(f, eye);
     return m;
+}
+inline M4 lookAt(V3 eye, V3 target, V3 up = {0, 1, 0}) {
+    V3 f = unit(target - eye), s = unit(cross(f, up));
+    return viewFromBasis(eye, f, s, cross(s, f));
 }
 struct Frustum {
     std::array<V4, 6> planes;
@@ -139,6 +142,7 @@ struct Camera {
     float distance = 39;
     float orbit = 0;
     V3 target{0, 0, 0};
+    float verticalFovDegrees = 62;
     V3 forward() const {
         return {std::sin(yaw) * std::cos(pitch), std::sin(pitch), std::cos(yaw) * std::cos(pitch)};
     }
@@ -151,9 +155,15 @@ struct Camera {
         return target + V3{offset.x * std::cos(orbit) + offset.z * std::sin(orbit), offset.y,
                            -offset.x * std::sin(orbit) + offset.z * std::cos(orbit)};
     }
-    M4 view() const { return strategy ? lookAt(eye(), target) : lookAt(pos, pos + forward()); }
+    M4 view() const {
+        if (strategy)
+            return lookAt(eye(), target);
+        const V3 f = forward(), right{-std::cos(yaw), 0, std::sin(yaw)};
+        return viewFromBasis(pos, f, right, cross(right, f));
+    }
+    float verticalFov() const { return (strategy ? 48.f : verticalFovDegrees) * pi / 180; }
     M4 projection(float aspect) const {
-        return perspective(strategy ? 48 * pi / 180 : 62 * pi / 180, aspect, .1f, 250.f);
+        return perspective(verticalFov(), aspect, .1f, 250.f);
     }
     void face(V3 at) {
         V3 f = unit(at - pos);
@@ -161,7 +171,11 @@ struct Camera {
         yaw = std::atan2(f.x, f.z);
     }
     void move(float right, float forwardInput, float dt, bool fast) {
-        V3 f = strategy ? unit(V3{-.58f, 0, -.72f}) : V3{std::sin(yaw), 0, std::cos(yaw)};
+        V3 f{std::sin(yaw), 0, std::cos(yaw)};
+        if (strategy) {
+            auto direction = target - eye();
+            f = unit({direction.x, 0, direction.z});
+        }
         V3 r = unit(cross(f, {0, 1, 0}));
         V3 d = f * forwardInput + r * right;
         if (length(d) > 1)

@@ -5,6 +5,8 @@ precision highp sampler2D;
 in vec2 uv;out vec4 frag;
 uniform vec3 uSunDirection;
 uniform vec3 uMoonDirection;
+uniform float uSunRadius;
+uniform float uMoonRadius;
 uniform vec3 uLightColor;
 uniform vec3 uSkyLightDirection;
 uniform float uDaylight;

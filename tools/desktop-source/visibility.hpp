@@ -1,6 +1,6 @@
 #pragma once
 #include "world.hpp"
-#include <queue>
+#include <optional>
 namespace pl {
 // Bounded exploration prototype: 256 m square, 2 m cells, one observer.
 struct VisibilityMap {
@@ -22,8 +22,13 @@ struct VisibilityMap {
         obstacle = ground;
     }
     int index(float x, float z) const {
-        int ix = int(std::floor((x - origin) / cell)), iz = int(std::floor((z - origin) / cell));
-        return ix >= 0 && ix < size && iz >= 0 && iz < size ? iz * size + ix : -1;
+        constexpr float end = origin + size * cell;
+        if (!(x >= origin && x < end && z >= origin && z < end))
+            return -1;
+        // The world-coordinate subtraction can round up at the final cell.
+        int ix = std::min(size - 1, int((x - origin) / cell));
+        int iz = std::min(size - 1, int((z - origin) / cell));
+        return iz * size + ix;
     }
     V3 position(int i) const {
         return {origin + (i % size + .5f) * cell, 0, origin + (i / size + .5f) * cell};
@@ -128,14 +133,15 @@ struct Scout {
     std::vector<int> path;
     size_t step = 0;
     int goal = 0;
-    bool initialized = false;
-    void plan(const VisibilityMap &map) {
-        const V3 goals[] = {{-30, 0, -20}, {35, 0, -20}, {35, 0, 30}, {-30, 0, 30}};
-        int start = map.nearest(position), end = map.nearest(goals[goal++ % 4]);
-        path.clear();
-        step = 0;
-        if (start < 0 || end < 0)
-            return;
+    bool initialized = false, commanded = false;
+
+  private:
+    std::optional<V3> destination;
+    static std::optional<std::vector<int>> route(const VisibilityMap &map, int start, int end) {
+        if (!map.walkable(start) || !map.walkable(end))
+            return std::nullopt;
+        if (start == end)
+            return std::vector<int>{};
         std::vector<int> previous(VisibilityMap::size * VisibilityMap::size, -1), queue;
         queue.reserve(previous.size());
         queue.push_back(start);
@@ -155,10 +161,62 @@ struct Scout {
             }
         }
         if (previous[end] < 0)
-            return;
+            return std::nullopt;
+        std::vector<int> path;
         for (int i = end; i != start; i = previous[i])
             path.push_back(i);
         std::reverse(path.begin(), path.end());
+        return path;
+    }
+    bool moveToward(V3 target, float &remaining) {
+        auto offset = target - position;
+        offset.y = 0;
+        const float distance = length(offset);
+        if (distance > 1e-5f)
+            heading = offset * (1 / distance);
+        const float travel = std::min(distance, remaining);
+        if (travel == distance)
+            position = target;
+        else
+            position = position + offset * (travel / distance);
+        remaining -= travel;
+        return travel == distance;
+    }
+
+  public:
+    void plan(const VisibilityMap &map) {
+        const V3 goals[] = {{-30, 0, -20}, {35, 0, -20}, {35, 0, 30}, {-30, 0, 30}};
+        const int start = map.nearest(position), end = map.nearest(goals[goal]);
+        goal = (goal + 1) % 4;
+        auto next = route(map, start, end);
+        path = next ? std::move(*next) : std::vector<int>{};
+        step = 0;
+    }
+    bool command(const VisibilityMap &map, V3 target) {
+        const int end = map.index(target.x, target.z);
+        if (!map.walkable(end))
+            return false;
+
+        int start = map.index(position.x, position.z);
+        if (!map.walkable(start))
+            start = map.nearest(position);
+        auto next = route(map, start, end);
+        if (!next)
+            return false;
+
+        if (!initialized) {
+            position = map.position(start);
+            position.y = terrainHeight(position.x, position.z);
+            initialized = true;
+        } else if (start != end) {
+            // Rejoin the grid at the current cell center before changing course.
+            next->insert(next->begin(), start);
+        }
+        path = std::move(*next);
+        step = 0;
+        destination = target;
+        commanded = true;
+        return true;
     }
     void advance(const VisibilityMap &map, double dt) {
         if (!initialized) {
@@ -168,28 +226,23 @@ struct Scout {
             position = map.position(i);
             initialized = true;
         }
-        if (step >= path.size())
+        if (!commanded && step >= path.size())
             plan(map);
-        float remaining = float(std::min(dt, .1)) * 4.f;
+        float remaining = float(std::clamp(dt, 0.0, .1)) * 4.f;
         while (remaining > 0 && step < path.size()) {
             if (!map.walkable(path[step])) {
                 path.clear();
+                step = 0;
+                destination.reset();
                 break;
             }
-            auto target = map.position(path[step]);
-            auto d = target - position;
-            d.y = 0;
-            float n = length(d);
-            if (n > 1e-5f)
-                heading = d * (1 / n);
-            if (n <= remaining) {
-                position = target;
-                remaining -= n;
+            if (moveToward(map.position(path[step]), remaining))
                 ++step;
-            } else {
-                position = position + d * (remaining / n);
-                remaining = 0;
-            }
+        }
+        if (remaining > 0 && step >= path.size() && destination) {
+            const int endpoint = map.index(destination->x, destination->z);
+            if (!map.walkable(endpoint) || moveToward(*destination, remaining))
+                destination.reset();
         }
         position.y = terrainHeight(position.x, position.z);
     }

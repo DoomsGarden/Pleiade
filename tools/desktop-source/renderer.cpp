@@ -584,12 +584,9 @@ RenderStats Renderer::render(const Scene &scene, const Camera &camera, bool cull
     RenderStats stats;
     auto stateEnd = stamp();
     stats.trace.state = renderMs(renderBegin, stateEnd);
-    if (scene.dynamicWorld) {
-        V3 c = camera.strategy ? camera.target : camera.pos;
-        // Strategy fits visible loaded regions; FPS retains the local volume.
-        c.y = 0;
+    if (shadows && scene.dynamicWorld) {
         lightVP = camera.strategy ? strategyShadowVP(scene, camera, float(width) / height, shadowSize)
-                                  : ortho(-85, 85, -85, 85, .1f, 250) * lookAt(c + V3{-60, 100, 60}, c);
+                                  : firstPersonShadowVP(camera, shadowSize);
     }
     auto prepareEnd = stamp(), shadowEnd = prepareEnd;
     if (shadows && (!shadowValid || scene.dynamicWorld)) {
@@ -638,7 +635,7 @@ RenderStats Renderer::render(const Scene &scene, const Camera &camera, bool cull
     const V3 cameraEye = camera.eye();
     if (layers)
         canopyCache.begin(scene.revision, scene.objects.size(), cameraEye,
-                          float(height) / (2 * std::tan((camera.strategy ? 48.f : 62.f) * pi / 360)));
+                          float(height) / (2 * std::tan(camera.verticalFov() * .5f)));
     for (auto &v : visible)
         v.clear();
     auto visit = [&](const Object &o) {

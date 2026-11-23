@@ -1,3 +1,16 @@
+# Versión de prueba 0.000.00.018 — cámaras, cielo y escala
+
+- La base C++ incorpora un recorrido jugable en primera persona con simulación a 60 Hz, carrera, salto, escalones y colisión con los bloques del patio. La vista estratégica puede orbitar, seleccionar al explorador y dirigirlo por terreno navegable.
+- La secuencia de prueba usa el renderer en tiempo real. Los fotogramas clave gobiernan posición, objetivo y campo de visión. La pista conserva el tiempo de los cortes y admite consulta a un tiempo específico. El campo de visión también gobierna el detalle proyectado.
+- El mapa de sombras nativo se alinea con una cuadrícula del mundo y mantiene la escala al orbitar. El sector residente aporta sombras aunque un objeto quede fuera de cámara.
+- El visor comparte el cielo ficticio entre fondo, agua y vidrio. Ajustes permite cambiar el radio aparente de la estrella principal y del satélite. El mundo exportado conserva ambos valores y los mundos de versiones anteriores recuperan sus tamaños previos.
+- La base de coordenadas sectorizadas preserva desplazamientos milimétricos locales a 2,5 millones de años luz del origen. Las escenas espaciales y la navegación a esa escala quedan en desarrollo.
+- La compilación de Windows ya admite las mallas de vegetación lejana. El paquete x64 incluye los recorridos de primera persona, estrategia y cinemática.
+
+Pasaron seis pruebas C++, las del visor, la carga de mundos antiguos y la exportación. Se verificaron los reflejos en Chromium WebGL 2 por software. Con Mesa y entradas SDL se comprobó el salto, el recorrido por los escalones, la selección del explorador y una orden de movimiento. Quedan pendientes la ejecución en Windows y las mediciones en GPU física y tableta. [Dos fotogramas de la cinemática](tests/results/visual-018/cinematica.jpg)
+
+---
+
 # Versión de prueba 0.000.00.017 — oleaje y espuma
 
 - En el lago, las crestas avanzan hacia tierra y se frenan al entrar en aguas someras. La humedad del terreno usa la misma fase que la superficie y conserva el rastro del agua durante la retirada.

@@ -2,9 +2,9 @@
 
 Pléiade es un motor gráfico propio. Este repositorio conserva el visor WebGL 2, su paquete Android y la fuente C++ recuperada de la base PC.
 
-## Android `0.000.00.017`
+## Versión de prueba `0.000.00.018`
 
-La APK de prueba incluye el visor y los recursos para usarlo sin conexión. Arranca en modo Ahorro. Requiere Android 7 o posterior y un WebView actualizado con WebGL 2. [Descargar desde GitHub Releases](https://github.com/DoomsGarden/Pleiade/releases/tag/v0.000.00.017)
+La APK de prueba incluye el visor y los recursos para usarlo sin conexión. Arranca en modo Ahorro. Requiere Android 7 o posterior y un WebView actualizado con WebGL 2. El paquete Windows x64 incluye los tres recorridos nativos, SDL2 y los materiales. [Descargas en GitHub Releases](https://github.com/DoomsGarden/Pleiade/releases/tag/v0.000.00.018)
 
 - **Orilla** permite explorar una cuenca de 104 m de lado en modo lago, río o cascada. En **Ajustes → Mirar bajo el agua** se puede inspeccionar el fondo.
 - **Edificación** permite alternar entre la cabaña, la casa de teja, el refugio de piedra y el pabellón abierto. **Biomas** abre cinco paisajes que se regeneran con la semilla del mundo.
@@ -25,6 +25,7 @@ Las pruebas de rendimiento en la tablet quedan pendientes. El visor y la APK com
 | `tools/` | Exportador de escenas y preparación de materiales y shaders. |
 | `tests/` | Pruebas y resultados de render de las revisiones recuperadas. |
 | `AGENTS.md` | Instrucciones del proyecto para Codex. |
+| `ROADMAP.md` | [Frentes de desarrollo y revisión por parche](ROADMAP.md). |
 | `CHANGELOG.md` | [Historial de cambios y pruebas](CHANGELOG.md). |
 
 ## Visor y pruebas
@@ -76,6 +77,14 @@ python3 tools/prepare_desktop_demo.py build/materials
 ./build/pleiade --water-demo --materials --asset-dir build/materials
 ```
 
-En Windows, un generador como Visual Studio deja el ejecutable en `build/Release/pleiade.exe`. SDL2 debe estar disponible al ejecutar. La distribución original de PC y sus texturas de 1024 px quedan pendientes de recuperar. La compilación de Windows queda pendiente de probar.
+La base C++ incluye tres recorridos de prueba. Los controles del patio siguen el teclado y el ratón. En la vista estratégica, el botón derecho gira la cámara y la rueda ajusta el zoom.
+
+| Recorrido | Inicio y controles |
+| --- | --- |
+| Primera persona | `./build/pleiade --walk-demo`. WASD para caminar, Mayús para correr, Espacio para saltar, botón derecho para mirar y Tab para alternar la cámara. El patio incluye colisiones con bloques. |
+| Estrategia | `./build/pleiade --fow-demo`. Cuando el terreno cargue, haz clic en el explorador azul y luego en un punto accesible. El explorador recorrerá la ruta y se detendrá al llegar. |
+| Cinemática | `./build/pleiade --water-demo --asset-dir build/materials --cinematic --no-hud`. La secuencia reproduce dos tomas en el renderer. Con `--cinematic-time 6.8` puedes saltar al corte. Al usar `--frames`, el tiempo avanza a pasos fijos de 1/60 s. |
+
+En Windows, un generador como Visual Studio deja el ejecutable en `build/Release/pleiade.exe`. SDL2 debe estar disponible al ejecutar. La versión de prueba se compiló de forma cruzada para Windows x64. Queda pendiente ejecutarla en un equipo Windows. La distribución original de PC y sus texturas de 1024 px quedan pendientes de recuperar.
 
 Consulta el [historial](CHANGELOG.md) y el [manifiesto de materiales](dist/assets/manifest.json) para ver procedencia, créditos y límites conocidos.

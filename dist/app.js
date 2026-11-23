@@ -1,10 +1,10 @@
-import {generateWorld,validateWorld,celestialFrame,starAtlas,cloudTransmission} from './celestial.js';
+import {generateWorld,validateWorld,celestialFrame,starAtlas,cloudTransmission,angularRadiusBounds} from './celestial.js';
 import {biomes,createBiome,copyPrototype} from './biomes.js';
 import {createWatershed,waterModes,driftSamples,channel,waterBase} from './watershed.js';
 import {climateAt,seasons,weatherModes} from './climate.js';
 import {moveDetached,plantContact} from './plant_contact.js';
 const $=id=>document.getElementById(id), canvas=$('view');
-const VERSION='0.000.00.017';
+const VERSION='0.000.00.018';
 const params=new URLSearchParams(location.search);
 const state={ready:false,scene:'shore',biome:'forest',waterMode:'lake',underwater:false,buildingForm:'cabin',season:'summer',weather:'clear',quality:window.PleiadeAndroid?'eco':'balanced',materials:true,shadows:true,shadowSoft:true,water:true,ssr:false,contact:false,animation:true,waveStrength:.35,time:0,waveTime:0,frames:0,errors:[],fps:0,hdr:false,paused:false};
 window.pleiade={state};
@@ -313,7 +313,8 @@ function setWaterUniforms(p){
 function drawGlass(c){
  if(!glassGroup)return;
  const p=programs.glass;gl.useProgram(p.id);
- um(p,'uVP',c.vp);uv(p,'uEye',c.eye);uv(p,'uSkyLightDirection',skyFrame.light);uf(p,'uDaylight',skyFrame.daylight);
+ skyUniforms(p);um(p,'uVP',c.vp);uv(p,'uEye',c.eye);uf(p,'uExposure',1);
+ bind(cloudTexture||visibilityTexture,13);ui(p,'uCloudMap',13);ui(p,'uCloudCached',cloudReuse&&cloudAmount>0);
  bind(targets[3],2);ui(p,'uOpaqueDepth',2);
  gl.enable(gl.CULL_FACE);gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
  drawGroup(glassGroup);gl.disable(gl.BLEND);gl.disable(gl.CULL_FACE);
@@ -337,8 +338,13 @@ function saveWorld(){try{localStorage.setItem('pleiade-world-v1',JSON.stringify(
 function importWorldText(text){try{applyWorld(JSON.parse(text));toast('Mundo y reloj restaurados.');}catch(e){toast(e.message);}}
 function uploadStars(){if(starTexture)gl.deleteTexture(starTexture);starTexture=texture(512,256,gl.RGBA32F,gl.RGBA,gl.FLOAT,starAtlas(world),true);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);}
 function syncSkyUI(){$('world-seed').value=world.seed;$('sky-hour').value=(world.elapsedDays%1)*24;$('sky-clock').textContent='Día '+Math.floor(world.elapsedDays)+' · '+((world.elapsedDays%1)*24).toFixed(1)+' h';}
-function applyWorld(w){world=validateWorld(w);if(state.scene==='biomes')regenerateBiome();if(watershed)regenerateShore();uploadStars();shadowDirty=true;syncSkyUI();saveWorld();}
-function skyUniforms(p){uf(p,'uSkyPixelAngle',2*Math.tan(opticalFov*Math.PI/360)/canvas.height);uf(p,'uWorldSeed',world.seed%65536);uf(p,'uCloudAmount',cloudAmount);uf(p,'uCloudTime',world.elapsedDays*world.daySeconds);uv(p,'uSkyObserver',cameraFrame().eye);uv(p,'uSunDirection',skyFrame.sun);uv(p,'uMoonDirection',skyFrame.moon);uv(p,'uLightColor',skyFrame.lightColor);uv(p,'uSkyLightDirection',skyFrame.light);uv(p,'lightDirection',skyFrame.light);uf(p,'uDaylight',skyFrame.daylight);uf(p,'uSkyAmbient',skyFrame.ambient);uf(p,'uStarAngle',skyFrame.phase);uf(p,'uLatitude',skyFrame.latitude);bind(starTexture,12);ui(p,'uStars',12);}
+const radiusControls=[['star-radius','starRadiusDegrees'],['satellite-radius','satelliteRadiusDegrees']];
+const radiusLabel=(id,degrees)=>{$(id+'-label').textContent=degrees.toFixed(2)+'°';};
+function syncRadiusUI(){
+ for(const [id,key] of radiusControls){$(id).value=world[key];radiusLabel(id,world[key]);}
+}
+function applyWorld(w){world=validateWorld(w);if(state.scene==='biomes')regenerateBiome();if(watershed)regenerateShore();uploadStars();shadowDirty=true;syncSkyUI();syncRadiusUI();saveWorld();}
+function skyUniforms(p){uf(p,'uSkyPixelAngle',2*Math.tan(opticalFov*Math.PI/360)/canvas.height);uf(p,'uWorldSeed',world.seed%65536);uf(p,'uCloudAmount',cloudAmount);uf(p,'uCloudTime',world.elapsedDays*world.daySeconds);uv(p,'uSkyObserver',cameraFrame().eye);uv(p,'uSunDirection',skyFrame.sun);uv(p,'uMoonDirection',skyFrame.moon);uf(p,'uSunRadius',world.starRadiusDegrees*Math.PI/180);uf(p,'uMoonRadius',world.satelliteRadiusDegrees*Math.PI/180);uv(p,'uLightColor',skyFrame.lightColor);uv(p,'uSkyLightDirection',skyFrame.light);uv(p,'lightDirection',skyFrame.light);uf(p,'uDaylight',skyFrame.daylight);uf(p,'uSkyAmbient',skyFrame.ambient);uf(p,'uStarAngle',skyFrame.phase);uf(p,'uLatitude',skyFrame.latitude);bind(starTexture,12);ui(p,'uStars',12);}
 function updateCloudCache(c){
  if(cloudAmount<=0||!cloudReuse)return;
  const width={eco:128,balanced:256,detail:384}[state.quality];
@@ -409,6 +415,18 @@ function setupUI(){
  };
  $('restore-plant').onclick=()=>{detached=null;drawAnchor=null;layoutRevision++;};
  syncSkyUI();
+ for(const [id,key] of radiusControls){
+  const input=$(id);
+  input.min=angularRadiusBounds.min;
+  input.max=angularRadiusBounds.max;
+  input.oninput=()=>{
+   const degrees=Number(input.value);
+   if(!Number.isFinite(degrees)||degrees<angularRadiusBounds.min||degrees>angularRadiusBounds.max)return;
+   world[key]=degrees;radiusLabel(id,degrees);
+  };
+  input.onchange=saveWorld;
+ }
+ syncRadiusUI();
  $('turbidity').oninput=()=>{turbidity=Number($('turbidity').value);};
  $('cloud-reuse').onchange=()=>{cloudReuse=$('cloud-reuse').checked;};
  $('clouds').oninput=()=>{cloudAmount=Number($('clouds').value);};

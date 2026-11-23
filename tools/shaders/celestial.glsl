@@ -1,5 +1,7 @@
 uniform vec3 uSunDirection;
 uniform vec3 uMoonDirection;
+uniform float uSunRadius;
+uniform float uMoonRadius;
 uniform vec3 uLightColor;
 uniform vec3 uSkyLightDirection;
 uniform float uDaylight;
@@ -65,28 +67,37 @@ vec3 celestialSky(vec3 direction){
  vec3 day=mix(vec3(.38,.49,.60),vec3(.045,.18,.42),sqrt(h));
  float dusk=exp(-abs(uSunDirection.y)*12.0)*(1.0-h)*(1.0-h);
  vec3 color=mix(night,day,uDaylight)+vec3(.48,.115,.025)*dusk*pow(max(dot(d,uSunDirection)*.5+.5,0.0),6.0);
- float lat=uLatitude;vec3 q=vec3(d.x,d.y*cos(lat)+d.z*sin(lat),-d.y*sin(lat)+d.z*cos(lat));
- float a=uStarAngle; q=vec3(cos(a)*q.x+sin(a)*q.y,-sin(a)*q.x+cos(a)*q.y,q.z);
- vec2 uv=vec2(fract(atan(q.y,q.x)/6.28318530718),asin(clamp(q.z,-1.0,1.0))/3.14159265359+.5);
- color+=pointStars(q)*(1.0-smoothstep(0.0,.3,uDaylight))*smoothstep(0.0,.12,d.y);
- float sunDot=dot(d,uSunDirection),moonDot=dot(d,uMoonDirection);
- float aa=max(uSkyPixelAngle*.006,.0000001);
- float sunRadius=.006,sunEdge=cos(sunRadius),mu=sqrt(clamp(1.0-(1.0-sunDot*sunDot)/(sunRadius*sunRadius),0.0,1.0));
- vec3 sunNormal=(d-uSunDirection*sunDot)/sunRadius;
- float granulation=.94+.06*skyNoise(sunNormal*70.0);
- color+=vec3(12.0,9.0,5.5)*(.4+.6*mu)*granulation*smoothstep(sunEdge-aa,sunEdge+aa,sunDot)*smoothstep(-.02,.01,d.y);
- // Fixed surface coordinates on the fictional moon; sunlight defines the terminator.
- float radius=.007,disc=1.0-moonDot*moonDot;
- if(moonDot>0.0&&disc<radius*radius){
+ if(uDaylight<.3&&d.y>0.0){
+  float lat=uLatitude;vec3 q=vec3(d.x,d.y*cos(lat)+d.z*sin(lat),-d.y*sin(lat)+d.z*cos(lat));
+  float a=uStarAngle;q=vec3(cos(a)*q.x+sin(a)*q.y,-sin(a)*q.x+cos(a)*q.y,q.z);
+  color+=pointStars(q)*(1.0-smoothstep(0.0,.3,uDaylight))*smoothstep(0.0,.12,d.y);
+ }
+ // Chord distance keeps disc edges stable even when their radius is a fraction of a degree.
+ float pixel=max(uSkyPixelAngle*.45,.000001);
+ float sunEdge=2.0*sin(uSunRadius*.5),sunDistance=length(d-uSunDirection);
+ float sunAA=min(pixel,sunEdge*.55);
+ if(sunDistance<sunEdge+sunAA&&d.y>-.02){
+  vec3 sunNormal=(d-uSunDirection*dot(d,uSunDirection))/sin(uSunRadius);
+  float mu=sqrt(clamp(1.0-dot(sunNormal,sunNormal),0.0,1.0));
+  float granulation=.94+.06*skyNoise(sunNormal*70.0);
+  float coverage=1.0-smoothstep(sunEdge-sunAA,sunEdge+sunAA,sunDistance);
+  color+=vec3(12.0,9.0,5.5)*(.4+.6*mu)*granulation*coverage*smoothstep(-.02,.01,d.y);
+ }
+ // Fixed surface coordinates on the fictional moon; the same disc occludes the sky behind it.
+ float moonEdge=2.0*sin(uMoonRadius*.5),moonDistance=length(d-uMoonDirection);
+ float moonAA=min(pixel,moonEdge*.55);
+ if(d.y>0.0&&moonDistance<moonEdge+moonAA){
  vec3 tangent=normalize(cross(abs(uMoonDirection.y)>.95?vec3(1,0,0):vec3(0,1,0),uMoonDirection)),up=cross(uMoonDirection,tangent);
- vec2 xy=vec2(dot(d,tangent),dot(d,up))/radius;float z=sqrt(max(0.0,1.0-dot(xy,xy)));vec3 surface=vec3(xy,z);
+ vec2 xy=vec2(dot(d,tangent),dot(d,up))/sin(uMoonRadius);xy/=max(1.0,length(xy));
+ float z=sqrt(max(0.0,1.0-dot(xy,xy)));vec3 surface=vec3(xy,z);
  float relief=moonRelief(surface),e=.003;
  vec2 gradient=vec2(moonRelief(normalize(surface+vec3(e,0,0)))-relief,moonRelief(normalize(surface+vec3(0,e,0)))-relief)/e;
  vec3 normal=normalize(tangent*(xy.x-gradient.x*.045)+up*(xy.y-gradient.y*.045)-uMoonDirection*z);
  float incidence=max(dot(normal,uSunDirection),0.0);
  float maria=smoothstep(.36,.65,skyNoise(surface*4.0));float albedo=mix(.18,.42,maria)+relief;
  vec3 lunar=vec3(.94,.93,.89)*albedo*(.006+incidence*2.0);
- color=mix(color,lunar,smoothstep(0.0,.03,d.y));
+ float coverage=1.0-smoothstep(moonEdge-moonAA,moonEdge+moonAA,moonDistance);
+ color=mix(color,lunar,coverage*smoothstep(0.0,.03,d.y));
  }
 
  return color;
