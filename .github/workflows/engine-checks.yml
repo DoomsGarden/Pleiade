@@ -100,6 +100,7 @@ jobs:
       - name: Install SDL2, build and run CTest
         shell: pwsh
         run: |
+          $PSNativeCommandUseErrorActionPreference = $true
           $vcpkg = $env:VCPKG_INSTALLATION_ROOT
           & "$vcpkg/vcpkg.exe" install sdl2:x64-windows --disable-metrics
           cmake -S . -B build -A x64 "-DCMAKE_TOOLCHAIN_FILE=$vcpkg/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows

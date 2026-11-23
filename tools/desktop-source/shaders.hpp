@@ -166,6 +166,7 @@ void main(){
  if(uSurfaceMaps!=0&&cutout&&texture(uSurfaceColor,vec3(rasterUV,layer)).a<(layer>=13.5?.28:.42))discard;
 }
 )GLSL";
+// Adjacent literals keep each chunk within MSVC's source literal limit.
 inline const char *material = R"GLSL(#version 430 core
 in vec3 rasterLocal;in vec3 rasterPosition;in vec3 worldNormal;in vec3 color;flat in vec3 surface;
 in vec2 rasterUV;
@@ -387,7 +388,8 @@ float visibility(vec3 n){
  float insideMap=smoothstep(0.0,.055,min(padding.x,padding.y));
  return mix(1.0,sum/max(total,.00001),insideMap);
 }
-vec3 sky(vec3 d){return mix(vec3(.12,.15,.18),vec3(.28,.42,.61),clamp(d.y*.5+.5,0.0,1.0));}
+)GLSL"
+R"GLSL(vec3 sky(vec3 d){return mix(vec3(.12,.15,.18),vec3(.28,.42,.61),clamp(d.y*.5+.5,0.0,1.0));}
 PBRSurface biomeSurface(vec3 n,float layer){
  float patches=filteredNoise(worldPosition.xz*.16);
  vec2 ground=worldPosition.xz;

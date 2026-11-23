@@ -74,7 +74,7 @@ void limits() {
     require(bottom.translated({-size * .52, 0, 0}).sector().x == min, "fitting lower carry");
     expectError<std::overflow_error>([&] { top.translated({2 * size, 0, 0}); }, "upper bound");
     expectError<std::overflow_error>([&] { bottom.translated({-2 * size, 0, 0}); }, "lower bound");
-    expectError<std::overflow_error>([] { SpacePosition({max, 0, 0}, {half, 0, 0}); },
+    expectError<std::overflow_error>([max] { SpacePosition({max, 0, 0}, {half, 0, 0}); },
                                      "initial offset cannot overflow");
     expectError<std::overflow_error>([] { SpacePosition().translated({size * 0x1p63, 0, 0}); },
                                      "displacement must fit");
@@ -86,7 +86,7 @@ void limits() {
 
     constexpr double infinity = std::numeric_limits<double>::infinity();
     constexpr double nan = std::numeric_limits<double>::quiet_NaN();
-    expectError<std::invalid_argument>([] { SpacePosition({}, {0, infinity, 0}); }, "infinite input");
+    expectError<std::invalid_argument>([infinity] { SpacePosition({}, {0, infinity, 0}); }, "infinite input");
     expectError<std::invalid_argument>([&] { top.translated({0, 0, nan}); }, "NaN displacement");
     require(top.sector().x == max && top.localMeters().x == -size * .49, "failed move is atomic");
 }

@@ -13,6 +13,7 @@ foam_shading=re.search(r'inline const char \*foamShading = R"GLSL\((.*?)\)GLSL";
 shaders={}
 for name in ['geometry','shadow','material','fullscreen','composite']:
  s=re.search(r'inline const char \*'+name+r' = R"GLSL\((.*?)\)GLSL";',shader,re.S).group(1)
+ s=re.sub(r'\)GLSL"\s*R"GLSL\(', '', s)
  s=s.replace('#version 430 core','#version 300 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler2D;\nprecision highp sampler2DArray;')
  # Desktop GLSL permits implicit int/float promotion; GLSL ES does not.
  if name!='fullscreen':
