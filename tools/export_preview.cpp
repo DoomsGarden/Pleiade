@@ -31,10 +31,10 @@ struct PreviewExporter {
             dump(GL_ELEMENT_ARRAY_BUFFER, mesh.ebo, ".ibo");
             if (i) meta << ',';
             meta << "{\"id\":" << i << ",\"indices\":" << mesh.indices;
-            const auto far = vegetationFarMesh(static_cast<MeshType>(i));
-            if (int(far) != i) {
-                meta << ",\"far\":" << int(far);
-                float material = foliageMaterialForMesh(far, -1);
+            const auto farMesh = vegetationFarMesh(static_cast<MeshType>(i));
+            if (int(farMesh) != i) {
+                meta << ",\"far\":" << int(farMesh);
+                float material = foliageMaterialForMesh(farMesh, -1);
                 if (material >= 0) meta << ",\"farMaterial\":" << material;
             }
             const auto mid = vegetationMiddleMesh(static_cast<MeshType>(i));
