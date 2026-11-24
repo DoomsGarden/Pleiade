@@ -7,7 +7,7 @@ uniform float uExposure;
 void main(){
  ivec2 at=ivec2(gl_FragCoord.xy);
  float opaque=texelFetch(uOpaqueDepth,at,0).r;
- if(gl_FragCoord.z>=opaque-.000002)discard;
+ if(opaque<.999999&&cameraDepth(gl_FragCoord.z)>=cameraDepth(opaque)-.004)discard;
  vec3 n=normalize(worldNormal);
  vec3 v=normalize(uEye-rasterPosition);
  // The pane has negligible distortion. Its transmitted color comes from the actual interior.

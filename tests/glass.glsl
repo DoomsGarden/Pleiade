@@ -75,7 +75,9 @@ vec4 cachedCloud(vec3 direction){
 }
 vec3 cloudSky(vec3 background,vec3 origin,vec3 direction){
  if(uCloudAmount<=0.0)return background;
- vec4 cloud=uCloudCached!=0?cachedCloud(direction):cloudVolume(origin,direction);
+ // Reflections viewed from high above the surface sample the clouds from the shading point.
+ bool nearObserver=abs(origin.y-uSkyObserver.y)<96.0;
+ vec4 cloud=uCloudCached!=0&&nearObserver?cachedCloud(direction):cloudVolume(origin,direction);
  return cloud.rgb+background*cloud.a;
 }
 vec3 celestialSky(vec3 direction){
@@ -120,6 +122,10 @@ vec3 celestialSky(vec3 direction){
  return color;
 }
 vec3 aces(vec3 x){return clamp((x*(2.51*x+.03))/(x*(2.43*x+.59)+.14),0.0,1.0);}
+uniform vec2 uDepthRange;
+float cameraDepth(float depth){
+ return uDepthRange.x*uDepthRange.y/(uDepthRange.x+(1.0-depth)*(uDepthRange.y-uDepthRange.x));
+}
 in vec3 rasterPosition;
 in vec3 worldNormal;
 out vec4 frag;
@@ -129,7 +135,7 @@ uniform float uExposure;
 void main(){
  ivec2 at=ivec2(gl_FragCoord.xy);
  float opaque=texelFetch(uOpaqueDepth,at,0).r;
- if(gl_FragCoord.z>=opaque-.000002)discard;
+ if(opaque<.999999&&cameraDepth(gl_FragCoord.z)>=cameraDepth(opaque)-.004)discard;
  vec3 n=normalize(worldNormal);
  vec3 v=normalize(uEye-rasterPosition);
  // The pane has negligible distortion. Its transmitted color comes from the actual interior.

@@ -9,6 +9,8 @@ vec4 cachedCloud(vec3 direction){
 }
 vec3 cloudSky(vec3 background,vec3 origin,vec3 direction){
  if(uCloudAmount<=0.0)return background;
- vec4 cloud=uCloudCached!=0?cachedCloud(direction):cloudVolume(origin,direction);
+ // Reflections viewed from high above the surface sample the clouds from the shading point.
+ bool nearObserver=abs(origin.y-uSkyObserver.y)<96.0;
+ vec4 cloud=uCloudCached!=0&&nearObserver?cachedCloud(direction):cloudVolume(origin,direction);
  return cloud.rgb+background*cloud.a;
 }

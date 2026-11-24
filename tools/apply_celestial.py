@@ -2,6 +2,7 @@ from pathlib import Path
 import json
 p=Path(__file__).resolve().parents[1]; path=p/'dist/assets/shaders.json';s=json.loads(path.read_text()); common=(p/'tools/shaders/celestial.glsl').read_text()
 cloud_prefix=common[:common.index('vec3 cloudSky(')]
+depth=(p/'tools/shaders/depth.glsl').read_text()
 s['cloud']='#version 300 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler2D;\nin vec2 uv;out vec4 frag;\n'+cloud_prefix+"\nvoid main(){float lon=uv.x*6.28318530718,lat=(uv.y-.5)*3.14159265359;vec3 ray=vec3(cos(lat)*cos(lon),sin(lat),cos(lat)*sin(lon));frag=cloudVolume(uSkyObserver,ray);}"
 a=common.index('vec3 cloudSky(');b=common.index('vec3 celestialSky(',a)
 common=common[:a]+(p/'tools/shaders/cloud_cache.glsl').read_text()+common[b:]
@@ -26,6 +27,10 @@ vec3 atmosphereFog(vec3 d){float h=max(d.y,0.0);return mix(mix(vec3(.006,.009,.0
   t=t.replace('c=mix(vec3(.54,.63,.69),vec3(.095,.20,.33),smoothstep(0.0,1.0,p.y))','c=celestialSky(uCameraForward+uCameraRight*((p.x*2.0-1.0)/uProjectionScale.x)+uCameraUp*((p.y*2.0-1.0)/uProjectionScale.y))')
  if name=='composite':
   t=t.replace('uniform float uExposure;', 'uniform float uExposure;\nuniform float uTurbidity;')
+  t=t.replace('float z=(2.0*.1*250.0)/(250.0+.1-(depth*2.0-1.0)*(250.0-.1));',
+              'float z=cameraDepth(depth);')
+  t=t.replace('vec3 viewPosition(',depth+'\nvec3 viewPosition(')
+  t=t.replace('(-.12-start.z)', '(-uDepthRange.x-.02-start.z)').replace('start.z>=-.1', 'start.z>=-uDepthRange.x')
   t=t.replace('vec3 transmission=exp(-vec3(.65,.27,.18)*waterDepth);', 'float waterPath=min(30.0,waterDepth/max(dot(n,v),.12));\n vec3 transmission=exp(-(vec3(.65,.27,.18)+vec3(uTurbidity))*waterPath);')
   # Reject sky neighbours and depth discontinuities when smoothing opaque geometry.
   at=t.index('void main(){',t.index('vec3 mapped('))
@@ -62,7 +67,7 @@ webgl='#version 300 es\nprecision highp float;\nprecision highp int;\nprecision 
 s['waterVertex']=webgl+lake_waves+waves+(shader_dir/'water_vertex.glsl').read_text()
 s['depthOnly']=webgl+'void main(){}\n'
 tone_map=s['composite'][s['composite'].index('vec3 aces('):s['composite'].index('vec3 mapped(')]
-s['glass']=webgl+common+tone_map+(shader_dir/'glass.glsl').read_text()
+s['glass']=webgl+common+tone_map+depth+(shader_dir/'glass.glsl').read_text()
 s['weatherVertex']=webgl+(shader_dir/'weather_vertex.glsl').read_text()
 s['weather']=webgl+(shader_dir/'weather.glsl').read_text()
 t=s['composite']
