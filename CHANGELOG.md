@@ -1,3 +1,10 @@
+# Versión de prueba 0.000.00.024 — iluminación del volumen de nubes
+
+- La estrella y el satélite ficticios iluminan el volumen de nubes antes de calcular su atenuación local. El terreno y el brillo directo del agua conservan la luz filtrada por la nubosidad.
+- Al importar un mundo con otra duración del día, el visor actualiza la panorámica de nubes aunque el tiempo de su animación coincida.
+
+---
+
 # Versión de prueba 0.000.00.023 — nubes delante del vidrio
 
 - El reflejo de las ventanas recibe la atenuación y la luz dispersada por las nubes entre la cámara y el vidrio. La transparencia sigue mostrando el interior o el fondo compuesto.

@@ -17,7 +17,17 @@ int main(int argc,char**argv){
  GLFN(glUseProgram,PFNGLUSEPROGRAMPROC);GLFN(glGetUniformLocation,PFNGLGETUNIFORMLOCATIONPROC);GLFN(glUniform1f,PFNGLUNIFORM1FPROC);GLFN(glUniform1i,PFNGLUNIFORM1IPROC);GLFN(glUniform3f,PFNGLUNIFORM3FPROC);GLFN(glGenVertexArrays,PFNGLGENVERTEXARRAYSPROC);GLFN(glBindVertexArray,PFNGLBINDVERTEXARRAYPROC);GLFN(glActiveTexture,PFNGLACTIVETEXTUREPROC);GLFN(glGenFramebuffers,PFNGLGENFRAMEBUFFERSPROC);GLFN(glBindFramebuffer,PFNGLBINDFRAMEBUFFERPROC);GLFN(glFramebufferTexture2D,PFNGLFRAMEBUFFERTEXTURE2DPROC);GLFN(glCheckFramebufferStatus,PFNGLCHECKFRAMEBUFFERSTATUSPROC);
  auto make=[&](const char*name){auto p=glCreateProgram();glAttachShader(p,shader("fullscreen",GL_VERTEX_SHADER));glAttachShader(p,shader(name,GL_FRAGMENT_SHADER));glLinkProgram(p);GLint ok;glGetProgramiv(p,GL_LINK_STATUS,&ok);if(!ok)exit(3);return p;};auto volume=make("cloud"),view=make("cloud_view");GLuint vao;glGenVertexArrays(1,&vao);glBindVertexArray(vao);
  GLuint tex,fbo;glGenTextures(1,&tex);glBindTexture(GL_TEXTURE_2D,tex);glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA16F,256,128,0,GL_RGBA,GL_FLOAT,nullptr);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);glGenFramebuffers(1,&fbo);glBindFramebuffer(GL_FRAMEBUFFER,fbo);glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,tex,0);if(glCheckFramebufferStatus(GL_FRAMEBUFFER)!=GL_FRAMEBUFFER_COMPLETE)return 4;
- auto uniforms=[&](GLuint p,float altitude){glUseProgram(p);glUniform1f(glGetUniformLocation(p,"uWorldSeed"),12345);glUniform1f(glGetUniformLocation(p,"uCloudAmount"),.85);glUniform1f(glGetUniformLocation(p,"uCloudTime"),360);glUniform1f(glGetUniformLocation(p,"uSkyAmbient"),1);glUniform3f(glGetUniformLocation(p,"uSkyObserver"),0,altitude,0);glUniform3f(glGetUniformLocation(p,"uSkyLightDirection"),.2,.8,.3);glUniform3f(glGetUniformLocation(p,"uLightColor"),4.4,3.95,3.2);};
+ auto uniforms=[&](GLuint p,float altitude){
+  glUseProgram(p);
+  glUniform1f(glGetUniformLocation(p,"uWorldSeed"),12345);
+  glUniform1f(glGetUniformLocation(p,"uCloudAmount"),.85);
+  glUniform1f(glGetUniformLocation(p,"uCloudTime"),360);
+  glUniform3f(glGetUniformLocation(p,"uSkyObserver"),0,altitude,0);
+  glUniform3f(glGetUniformLocation(p,"uSkyLightDirection"),.2,.8,.3);
+  // The standalone historical view uses the original names.
+  for(const char *name:{"uSkyAmbient","uCloudAmbient"})glUniform1f(glGetUniformLocation(p,name),1);
+  for(const char *name:{"uLightColor","uCloudLightColor"})glUniform3f(glGetUniformLocation(p,name),4.4,3.95,3.2);
+ };
  for(float altitude:{2.f,1300.f,4200.f}){
  glBindFramebuffer(GL_FRAMEBUFFER,fbo);glViewport(0,0,256,128);uniforms(volume,altitude);glDrawArrays(GL_TRIANGLES,0,3);glFinish();auto buildStart=std::chrono::steady_clock::now();glDrawArrays(GL_TRIANGLES,0,3);glFinish();std::cout<<"altitude "<<altitude<<" atlas ms "<<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-buildStart).count()<<"\n";
  glBindFramebuffer(GL_FRAMEBUFFER,0);glViewport(0,0,480,270);uniforms(view,altitude);glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,tex);glUniform1i(glGetUniformLocation(view,"uCloudMap"),0);

@@ -3,9 +3,11 @@ uniform vec3 uMoonDirection;
 uniform float uSunRadius;
 uniform float uMoonRadius;
 uniform vec3 uLightColor;
+uniform vec3 uCloudLightColor;
 uniform vec3 uSkyLightDirection;
 uniform float uDaylight;
 uniform float uSkyAmbient;
+uniform float uCloudAmbient;
 uniform float uStarAngle;
 uniform float uLatitude;
 uniform sampler2D uStars;
@@ -68,7 +70,8 @@ vec4 cloudVolume(vec3 origin,vec3 d,float distance){
  float alpha=1.0-exp(-extinction*segment);
  float toward=cloudDensity(pos+uSkyLightDirection*220.0,heights.x,heights.y);
  float light=exp(-toward*2.0),forward=pow(max(dot(d,uSkyLightDirection),0.0),12.0);
- vec3 scatter=vec3(.10,.14,.20)*uSkyAmbient+uLightColor*.16*(light+.35*forward);
+ // The cloud samples already estimate local extinction toward the light.
+ vec3 scatter=vec3(.10,.14,.20)*uCloudAmbient+uCloudLightColor*.16*(light+.35*forward);
  accum+=trans*alpha*scatter;trans*=1.0-alpha;if(trans<.015)break;
  }}return vec4(accum,trans);
 }

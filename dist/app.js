@@ -5,7 +5,7 @@ import {climateAt,seasons,weatherModes} from './climate.js';
 import {moveDetached,plantContact} from './plant_contact.js';
 import {ceiling,flightLimits,fly} from './flight.js';
 const $=id=>document.getElementById(id), canvas=$('view');
-const VERSION='0.000.00.023';
+const VERSION='0.000.00.024';
 const params=new URLSearchParams(location.search);
 const state={ready:false,scene:'shore',biome:'forest',waterMode:'lake',underwater:false,buildingForm:'cabin',season:'summer',weather:'clear',quality:window.PleiadeAndroid?'eco':'balanced',materials:true,shadows:true,shadowSoft:true,water:true,ssr:false,contact:false,animation:true,waveStrength:.35,time:0,waveTime:0,frames:0,errors:[],fps:0,hdr:false,paused:false};
 window.pleiade={state};
@@ -20,6 +20,7 @@ const math={
 };
 let gl,programs={},meshes=new Map(),groups=[],materialTextures=[],targets=[],sceneFbo,shadowFbo,shadowTexture,visibilityTexture,shadowSize=1024,emptyVAO,sceneData,manifest,shadowDirty=true,frameRequest=0,lastFrame=0,lastTime=0,statTime=0,statFrames=0,capturePending=false,toastTimer;
 let world=generateWorld(),starTexture,skyFrame,skyRunning=false,skyView=false,flightAltitude=2,opticalFov=62,cloudAmount=0,turbidity=.3,lastSaved=0;
+let surfaceLightColor,surfaceAmbient;
 try{const saved=localStorage.getItem('pleiade-world-v1');if(saved)world=validateWorld(JSON.parse(saved));}catch{}
 let cloudTexture,cloudFbo,cloudWidth=0,cloudKey='',cloudOrigin=[],cloudBuiltAt=0,cloudBuilds=0,cloudReuse=true;
 const flightKeys=new Set(), flightButtons=new Map(), pointers=new Map();
@@ -438,7 +439,18 @@ function syncRadiusUI(){
  for(const [id,key] of radiusControls){$(id).value=world[key];radiusLabel(id,world[key]);}
 }
 function applyWorld(w){world=validateWorld(w);if(state.scene==='biomes')regenerateBiome();if(watershed)regenerateShore();uploadStars();shadowDirty=true;syncSkyUI();syncRadiusUI();saveWorld();}
-function skyUniforms(p,c,observer=c.eye){uf(p,'uSkyPixelAngle',2*Math.tan(opticalFov*Math.PI/360)/canvas.height);uf(p,'uWorldSeed',world.seed%65536);uf(p,'uCloudAmount',cloudAmount);uf(p,'uCloudTime',world.elapsedDays*world.daySeconds);uv(p,'uSkyObserver',observer);uv(p,'uSunDirection',skyFrame.sun);uv(p,'uMoonDirection',skyFrame.moon);uf(p,'uSunRadius',world.starRadiusDegrees*Math.PI/180);uf(p,'uMoonRadius',world.satelliteRadiusDegrees*Math.PI/180);uv(p,'uLightColor',skyFrame.lightColor);uv(p,'uSkyLightDirection',skyFrame.light);uv(p,'lightDirection',skyFrame.light);uf(p,'uDaylight',skyFrame.daylight);uf(p,'uSkyAmbient',skyFrame.ambient);uf(p,'uStarAngle',skyFrame.phase);uf(p,'uLatitude',skyFrame.latitude);bind(starTexture,12);ui(p,'uStars',12);}
+function skyUniforms(p,c,observer=c.eye){
+ uf(p,'uSkyPixelAngle',2*Math.tan(opticalFov*Math.PI/360)/canvas.height);
+ uf(p,'uWorldSeed',world.seed%65536);uf(p,'uCloudAmount',cloudAmount);
+ uf(p,'uCloudTime',world.elapsedDays*world.daySeconds);uv(p,'uSkyObserver',observer);
+ uv(p,'uSunDirection',skyFrame.sun);uv(p,'uMoonDirection',skyFrame.moon);
+ uf(p,'uSunRadius',world.starRadiusDegrees*Math.PI/180);uf(p,'uMoonRadius',world.satelliteRadiusDegrees*Math.PI/180);
+ uv(p,'uLightColor',surfaceLightColor);uf(p,'uSkyAmbient',surfaceAmbient);
+ uv(p,'uCloudLightColor',skyFrame.lightColor);uf(p,'uCloudAmbient',skyFrame.ambient);
+ uv(p,'uSkyLightDirection',skyFrame.light);uv(p,'lightDirection',skyFrame.light);
+ uf(p,'uDaylight',skyFrame.daylight);uf(p,'uStarAngle',skyFrame.phase);uf(p,'uLatitude',skyFrame.latitude);
+ bind(starTexture,12);ui(p,'uStars',12);
+}
 function updateCloudCache(c){
  if(cloudAmount<=0||!cloudReuse)return;
  const width={eco:128,balanced:256,detail:384}[state.quality];
@@ -446,7 +458,7 @@ function updateCloudCache(c){
  // A flown camera can move every frame. Snap the panorama origin while keeping the scene camera continuous.
  const cell=[4,12,4];
  const observer=flight?c.eye.map((position,i)=>Math.round(position/cell[i])*cell[i]):c.eye;
- const key=JSON.stringify([world.seed,world.moonPhase,world.moonPeriod,world.latitude,cloudAmount,Math.floor(world.elapsedDays*world.daySeconds*4)]);
+ const key=JSON.stringify([world.seed,world.moonPhase,world.moonPeriod,world.latitude,cloudAmount,world.daySeconds,Math.floor(world.elapsedDays*world.daySeconds*4)]);
  if(key===cloudKey){
   if(observer.every((value,i)=>value===cloudOrigin[i]))return;
   if(flight&&state.time-cloudBuiltAt<.12)return;
@@ -460,7 +472,13 @@ function render(){if(!state.ready||gl.isContextLost())return;
  if(density!==leafStep){leafStep=density;drawAnchor=null;layoutRevision++;}
  const windStep=Math.floor(state.time*3);
  if(state.weather!=='clear'&&windStep!==shadowWindStep){shadowWindStep=windStep;shadowDirty=true;}
- resize();skyFrame=celestialFrame(world);const cloudLight=cloudTransmission(world,skyFrame.light,cloudAmount);skyFrame.lightColor=skyFrame.lightColor.map(x=>x*cloudLight);skyFrame.ambient*=.5+.5*cloudLight;const range=state.scene==='biomes'?64:state.scene==='building'?12:32;lightVP=math.mul(math.ortho(-range,range,-range,range,.1,200),math.look(math.scale(skyFrame.light,100),[0,0,0]));const c=cameraFrame();uploadSceneMeshes(c);updateCloudCache(c);gl.enable(gl.DEPTH_TEST);gl.enable(gl.CULL_FACE);gl.disable(gl.BLEND);
+ resize();skyFrame=celestialFrame(world);
+ const groundTransmission=cloudTransmission(world,skyFrame.light,cloudAmount);
+ surfaceLightColor=skyFrame.lightColor.map(x=>x*groundTransmission);
+ surfaceAmbient=skyFrame.ambient*(.5+.5*groundTransmission);
+ const range=state.scene==='biomes'?64:state.scene==='building'?12:32;
+ lightVP=math.mul(math.ortho(-range,range,-range,range,.1,200),math.look(math.scale(skyFrame.light,100),[0,0,0]));
+ const c=cameraFrame();uploadSceneMeshes(c);updateCloudCache(c);gl.enable(gl.DEPTH_TEST);gl.enable(gl.CULL_FACE);gl.disable(gl.BLEND);
  if(state.shadows&&shadowDirty){gl.bindFramebuffer(gl.FRAMEBUFFER,shadowFbo);gl.viewport(0,0,shadowSize,shadowSize);gl.clear(gl.DEPTH_BUFFER_BIT);let p=programs.shadow;gl.useProgram(p.id);um(p,'uVP',lightVP);uf(p,'uTime',state.time);uf(p,'uWind',climate.wind);gl.enable(gl.POLYGON_OFFSET_FILL);gl.polygonOffset(2,4);drawGroups();gl.disable(gl.POLYGON_OFFSET_FILL);shadowDirty=false;}
  gl.bindFramebuffer(gl.FRAMEBUFFER,sceneFbo);gl.viewport(0,0,canvas.width,canvas.height);gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);let p=programs.material;gl.useProgram(p.id);skyUniforms(p,c);um(p,'uVP',c.vp);um(p,'uView',c.v);um(p,'uLightVP',lightVP);uv(p,'uEye',c.eye);uf(p,'uTime',state.time);uf(p,'uWind',climate.wind);uv(p,'uClimate',[climate.autumn,climate.frost,climate.wet]);uf(p,'uWetTime',state.waveTime);uf(p,'uWaveStrength',state.waveStrength);uf(p,'uFogDensity',.0025/(1+(flight?Math.max(0,c.eye[1]-35)/340:0)));uf(p,'uTerrainSeed',world.seed%65536);ui(p,'uShadows',state.shadows);ui(p,'uShadowSoft',state.shadowSoft);ui(p,'uNatural',1);ui(p,'uMaterials',state.materials);ui(p,'uWet',state.scene==='shore'&&state.water&&state.waterMode==='lake');ui(p,'uShoreWaterMode',state.scene==='shore'&&state.water?waterModes.indexOf(state.waterMode):-1);ui(p,'uVisibilityEnabled',0);bind(shadowTexture,0);bind(visibilityTexture,11);ui(p,'uShadow',0);materialTextures.forEach((t,i)=>bind(t,5+i));drawGroups();
  if(state.water&&state.scene==='shore')drawWater(c);
