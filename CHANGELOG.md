@@ -1,4 +1,12 @@
-# Candidato 0.000.00.019 — vuelo atmosférico
+# Versión de prueba 0.000.00.020 — órdenes de grupo
+
+- En la demo estratégica de escritorio, Mayús+clic añade exploradores a la selección. Las órdenes de grupo asignan destinos distintos en el terreno cargado. Una formación inaccesible conserva las rutas anteriores.
+- La selección usa la cámara del fotograma presentado. La niebla comparte la visión de los exploradores y conserva el terreno explorado.
+- El visor y la base C++ comparten la numeración de la versión.
+
+---
+
+# Versión de prueba 0.000.00.019 — vuelo atmosférico
 
 - El visor permite volar con teclado y controles táctiles. La cámara parte de la vista actual, mantiene margen sobre terreno y agua y recupera la cámara anterior al salir.
 - La proyección y el shader de composición comparten la distancia de recorte. El agua, la refracción y el terreno conservan la profundidad al ganar altura.
