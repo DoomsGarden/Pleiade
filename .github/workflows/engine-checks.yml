@@ -75,10 +75,10 @@ jobs:
           # time out on individual SDL packages even after updating the index.
           sources="$RUNNER_TEMP/pleiade-apt"
           mkdir -p "$sources"
-          sed -E 's|https?://[a-z0-9.-]*archive\.ubuntu\.com/ubuntu/?|https://archive.ubuntu.com/ubuntu/|g' \
+          sed 's|^URIs:.*|URIs: https://archive.ubuntu.com/ubuntu/|' \
             /etc/apt/sources.list.d/ubuntu.sources > "$sources/ubuntu.sources"
           apt_options=(-o "Dir::Etc::sourceparts=$sources" -o Dir::Etc::sourcelist=/dev/null \
-            -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
+            -o Acquire::Languages=none -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
           sudo apt-get "${apt_options[@]}" update
           sudo apt-get "${apt_options[@]}" install -y --no-install-recommends libsdl2-dev libegl1 libgl1-mesa-dri
           python -m pip install -r requirements.txt
