@@ -1,11 +1,11 @@
 import {generateWorld,validateWorld,celestialFrame,starAtlas,cloudTransmission,angularRadiusBounds} from './celestial.js';
-import {biomes,createBiome,copyPrototype} from './biomes.js';
+import {biomes,createBiome,copyPrototype} from './biomes.js?v=0.000.00.022';
 import {createWatershed,waterModes,driftSamples,channel,lakeBank,waterBase} from './watershed.js';
 import {climateAt,seasons,weatherModes} from './climate.js';
 import {moveDetached,plantContact} from './plant_contact.js';
 import {ceiling,flightLimits,fly} from './flight.js';
 const $=id=>document.getElementById(id), canvas=$('view');
-const VERSION='0.000.00.021';
+const VERSION='0.000.00.022';
 const params=new URLSearchParams(location.search);
 const state={ready:false,scene:'shore',biome:'forest',waterMode:'lake',underwater:false,buildingForm:'cabin',season:'summer',weather:'clear',quality:window.PleiadeAndroid?'eco':'balanced',materials:true,shadows:true,shadowSoft:true,water:true,ssr:false,contact:false,animation:true,waveStrength:.35,time:0,waveTime:0,frames:0,errors:[],fps:0,hdr:false,paused:false};
 window.pleiade={state};
@@ -77,6 +77,24 @@ function replaceMesh(id,data){
  if(old){gl.deleteVertexArray(old.vao);for(const b of [old.vertex,old.index,old.instances])gl.deleteBuffer(b);}
  makeMesh({id,indices:data.indices.length},data.vertices,data.indices,32);
 }
+function addWoodLOD(meshId,id,tipRadius){
+ const mesh=meshes.get(meshId);
+ if(!mesh)return;
+ // Two rings keep the attachment points and enclose the branch on every side.
+ const vertices=[],indices=[],sides=4;
+ for(const [ring,radius] of [.512,tipRadius].entries()){
+  for(let side=0;side<=sides;side++){
+   const angle=2*Math.PI*side/sides,x=Math.cos(angle),z=Math.sin(angle);
+   vertices.push(radius*x,ring-.5,radius*z,x,0,z,side/sides,ring);
+  }
+ }
+ for(let side=0;side<sides;side++){
+  const top=side+sides+1;
+  indices.push(side,top,side+1,side+1,top,top+1);
+ }
+ makeMesh({id,indices:indices.length},new Float32Array(vertices),new Uint32Array(indices),32);
+ mesh.woodFar=id;
+}
 let waterContacts=new Float32Array();
 function collectWaterContacts(mode,objects,rockIds){
  const contacts=[];
@@ -118,7 +136,7 @@ function regenerateShore(){
   const x=state.waterMode==='lake'?6+2.6*Math.sin(i*2.4):channel(z)+side*(6.1+1.9*Math.sin(i*2.2));
   const kind=['birch2','spruce2','pine2'][i%3];
   const size=4.6+2.4*Math.sin((i+1)*.55)**2;
-  copyPrototype(shoreObjects,sceneData.plants[kind],x,watershed.height(x,z)-.055,z,size,i*2.4,.88,true);
+  copyPrototype(shoreObjects,sceneData.plants[kind],x,watershed.height(x,z)-.055,z,size,i*2.4,.88);
  }
  // Two partly submerged rocks provide a visible reference for the current.
  if(state.waterMode!=='lake'){
@@ -143,6 +161,10 @@ function regenerateBiome(){
  }
  layoutRevision++;drawAnchor=null;shadowDirty=true;
 }
+function squaredAxisLength(model,offset){
+ const x=model[offset],y=model[offset+1],z=model[offset+2];
+ return x*x+y*y+z*z;
+}
 function uploadSceneMeshes({eye,forward,right,up}){
  const focal=canvas.height/(2*Math.tan(opticalFov*Math.PI/360));
  const tall=canvas.height/(2*focal),wide=canvas.width/(2*focal);
@@ -156,8 +178,11 @@ function uploadSceneMeshes({eye,forward,right,up}){
  const objects=state.scene==='materials'?moveDetached(source,detached,age,(x,z)=>.08*x+.12*Math.sin(z*.15)):source;
  const byMesh=new Map(),plan=[],near=[];
  const isBiome=state.scene==='biomes'||state.scene==='shore';
+ const [eyeX,eyeY,eyeZ]=eye,[forwardX,forwardY,forwardZ]=forward;
+ const [rightX,rightY,rightZ]=right,[upX,upY,upZ]=up;
  let remaining=limits[state.quality].near, midBudget=limits[state.quality].mid;
- for(const [objectIndex,{mesh:id,instance,visible,detail,section}] of objects.entries()){
+ for(let objectIndex=0;objectIndex<objects.length;objectIndex++){
+  const {mesh:id,instance,visible,detail,section}=objects[objectIndex];
   if(visible===false)continue;
   if(state.scene==='materials'&&(id===0||instance[22]===9))continue;
   if(instance[23]===-7){
@@ -165,23 +190,28 @@ function uploadSceneMeshes({eye,forward,right,up}){
    if(rank>leafStep/16)continue;
   }
   const mesh=meshes.get(id);
-  const breadth=Math.max(Math.hypot(instance[0],instance[1],instance[2]),Math.hypot(instance[8],instance[9],instance[10]));
-  const height=Math.hypot(instance[4],instance[5],instance[6]);
+  const breadth=Math.sqrt(Math.max(squaredAxisLength(instance,0),squaredAxisLength(instance,8)));
+  const height=Math.sqrt(squaredAxisLength(instance,4));
   const woody=section>=1&&section<=6;
-  const offset=[instance[12]-eye[0],instance[13]-eye[1],instance[14]-eye[2]];
-  const distance=Math.max(.25,Math.hypot(...offset));
-  const depth=math.dot(offset,forward);
+  const branch=section>=4&&section<=6;
+  const x=instance[12]-eyeX,y=instance[13]-eyeY,z=instance[14]-eyeZ;
+  const distance=Math.sqrt(Math.max(.0625,x*x+y*y+z*z));
+  const depth=x*forwardX+y*forwardY+z*forwardZ;
   const projected=focal/Math.max(.25,depth,distance*.72);
   if(isBiome&&typeof id==='number'&&distance>31){
    const margin=12+Math.max(breadth,height);
-   if(depth < -margin || Math.abs(math.dot(offset,right))>Math.max(0,depth)*wide+margin ||
-      Math.abs(math.dot(offset,up))>Math.max(0,depth)*tall+margin)continue;
+   const visibleDepth=Math.max(0,depth);
+   if(depth < -margin || Math.abs(x*rightX+y*rightY+z*rightZ)>visibleDepth*wide+margin ||
+      Math.abs(x*upX+y*upY+z*upZ)>visibleDepth*tall+margin)continue;
   }
   const pixels=(woody?breadth:Math.max(breadth,height))*projected;
-  if(detail&&pixels<(woody&&state.scene==='biomes'?1.4:woody?.6:3.5))continue;
-  const item={id:instance[22]===18?'glass':mesh.far??id,instance,material:mesh.farMaterial,objectIndex};
-  plan.push(item);
+  // The length keeps a thin, visible limb attached to the crown. Diameter
+  // still decides how many sides are needed to resolve the wood.
+  if(detail&&(branch?Math.max(breadth,height)*projected<1.4:pixels<(woody&&state.scene==='biomes'?1.4:woody?.6:3.5)))continue;
   const detailThreshold=woody?(state.quality==='detail'?6:12):(state.quality==='detail'?34:54);
+  const far=mesh.woodFar!==undefined&&pixels<=detailThreshold?mesh.woodFar:mesh.far;
+  const item={id:instance[22]===18?'glass':far??id,instance,material:mesh.farMaterial,objectIndex};
+  plan.push(item);
   if(mesh.far!==undefined&&(pixels>detailThreshold||(mesh.mid!==undefined&&pixels>12))){
    const facing=Math.max(0,depth/distance);
    near.push({item,id,mesh,pixels,detailThreshold,priority:pixels*(.17+.83*facing*facing)});
@@ -432,7 +462,7 @@ function render(){if(!state.ready||gl.isContextLost())return;
  if(state.weather!=='clear'&&windStep!==shadowWindStep){shadowWindStep=windStep;shadowDirty=true;}
  resize();skyFrame=celestialFrame(world);const cloudLight=cloudTransmission(world,skyFrame.light,cloudAmount);skyFrame.lightColor=skyFrame.lightColor.map(x=>x*cloudLight);skyFrame.ambient*=.5+.5*cloudLight;const range=state.scene==='biomes'?64:state.scene==='building'?12:32;lightVP=math.mul(math.ortho(-range,range,-range,range,.1,200),math.look(math.scale(skyFrame.light,100),[0,0,0]));const c=cameraFrame();uploadSceneMeshes(c);updateCloudCache(c);gl.enable(gl.DEPTH_TEST);gl.enable(gl.CULL_FACE);gl.disable(gl.BLEND);
  if(state.shadows&&shadowDirty){gl.bindFramebuffer(gl.FRAMEBUFFER,shadowFbo);gl.viewport(0,0,shadowSize,shadowSize);gl.clear(gl.DEPTH_BUFFER_BIT);let p=programs.shadow;gl.useProgram(p.id);um(p,'uVP',lightVP);uf(p,'uTime',state.time);uf(p,'uWind',climate.wind);gl.enable(gl.POLYGON_OFFSET_FILL);gl.polygonOffset(2,4);drawGroups();gl.disable(gl.POLYGON_OFFSET_FILL);shadowDirty=false;}
- gl.bindFramebuffer(gl.FRAMEBUFFER,sceneFbo);gl.viewport(0,0,canvas.width,canvas.height);gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);let p=programs.material;gl.useProgram(p.id);skyUniforms(p,c);um(p,'uVP',c.vp);um(p,'uView',c.v);um(p,'uLightVP',lightVP);uv(p,'uEye',c.eye);uf(p,'uTime',state.time);uf(p,'uWind',climate.wind);uv(p,'uClimate',[climate.autumn,climate.frost,climate.wet]);uf(p,'uWetTime',state.waveTime);uf(p,'uWaveStrength',state.waveStrength);uf(p,'uFogDensity',.0025/(1+(flight?Math.max(0,c.eye[1]-35)/340:0)));uf(p,'uTerrainSeed',world.seed%65536);ui(p,'uShadows',state.shadows);ui(p,'uShadowSoft',state.shadowSoft);ui(p,'uNatural',1);ui(p,'uMaterials',state.materials);ui(p,'uWet',state.scene==='shore'&&state.water&&state.waterMode==='lake');ui(p,'uVisibilityEnabled',0);bind(shadowTexture,0);bind(visibilityTexture,11);ui(p,'uShadow',0);materialTextures.forEach((t,i)=>bind(t,5+i));drawGroups();
+ gl.bindFramebuffer(gl.FRAMEBUFFER,sceneFbo);gl.viewport(0,0,canvas.width,canvas.height);gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);let p=programs.material;gl.useProgram(p.id);skyUniforms(p,c);um(p,'uVP',c.vp);um(p,'uView',c.v);um(p,'uLightVP',lightVP);uv(p,'uEye',c.eye);uf(p,'uTime',state.time);uf(p,'uWind',climate.wind);uv(p,'uClimate',[climate.autumn,climate.frost,climate.wet]);uf(p,'uWetTime',state.waveTime);uf(p,'uWaveStrength',state.waveStrength);uf(p,'uFogDensity',.0025/(1+(flight?Math.max(0,c.eye[1]-35)/340:0)));uf(p,'uTerrainSeed',world.seed%65536);ui(p,'uShadows',state.shadows);ui(p,'uShadowSoft',state.shadowSoft);ui(p,'uNatural',1);ui(p,'uMaterials',state.materials);ui(p,'uWet',state.scene==='shore'&&state.water&&state.waterMode==='lake');ui(p,'uShoreWaterMode',state.scene==='shore'&&state.water?waterModes.indexOf(state.waterMode):-1);ui(p,'uVisibilityEnabled',0);bind(shadowTexture,0);bind(visibilityTexture,11);ui(p,'uShadow',0);materialTextures.forEach((t,i)=>bind(t,5+i));drawGroups();
  if(state.water&&state.scene==='shore')drawWater(c);
  gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.disable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);p=programs.composite;gl.useProgram(p.id);skyUniforms(p,c);bind(cloudTexture||visibilityTexture,13);ui(p,'uCloudMap',13);ui(p,'uCloudCached',cloudReuse&&cloudAmount>0);for(let i=0;i<4;i++)bind(targets[[0,1,3,2][i]],i);bind(waterDepth,4);ui(p,'uWaterDepth',4);ui(p,'uContact',state.hdr&&state.contact);ui(p,'uWater',state.water&&state.scene==='shore');ui(p,'uWaterSSR',state.ssr&&state.water);ui(p,'uUnderwater',state.underwater&&state.water);setWaterUniforms(p);ui(p,'uContactCount',waterContacts.length/3);
  if(waterContacts.length)gl.uniform3fv(loc(p,'uWaterContacts[0]'),waterContacts);
@@ -582,6 +612,8 @@ async function start(){setupUI();$('quality').value=state.quality;gl=canvas.getC
   if(mesh.mid!==undefined)needed.add(mesh.mid);
  }
  await Promise.all(sceneData.meshes.filter(m=>needed.has(m.id)).map(loadMesh));
+ addWoodLOD(sceneData.meshIds.wood,'wood-far',.288);
+ addWoodLOD(sceneData.meshIds.branch,'branch-far',.021);
  const layerInfo=await fetchData('assets/surfaces.json');
  const layerData=await Promise.all(['color','normal'].map(kind=>fetchData(`assets/surfaces-${kind}.rgba`,'buffer')));
  layerData.forEach((bytes,index)=>{

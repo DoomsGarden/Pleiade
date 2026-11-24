@@ -44,18 +44,18 @@ float recentShoreWater(vec2 p,float time,float strength,bool curved){
  float prior=lakeWave(p,max(0.0,time-.78),strength,curved).x-.042;
  return max(now,max(last,prior));
 }
+float channelCenter(float z){
+ return -3.3+3.1*sin(z*.056)+1.3*sin(z*.133+.9);
+}
+float waterLevel(float z,int mode){
+ return mode==0?0.0:.44+z*.010+(mode==2?3.65*smoothstep(-2.5,1.7,z):0.0);
+}
 uniform float uWaterTime;
 uniform float uWaveStrength;
 uniform int uWaterMode;
 
-float channelCenter(float z){
- return -3.3+3.1*sin(z*.056)+1.3*sin(z*.133+.9);
-}
 float channelSlope(float z){
  return .1736*cos(z*.056)+.1729*cos(z*.133+.9);
-}
-float waterLevel(float z){
- return uWaterMode==0?0.0:.44+z*.010+(uWaterMode==2?3.65*smoothstep(-2.5,1.7,z):0.0);
 }
 float waterSlope(float z){
  if(uWaterMode==0)return 0.0;

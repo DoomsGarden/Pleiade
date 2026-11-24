@@ -1,3 +1,10 @@
+# Versión de prueba 0.000.00.022 — nieve y ramas
+
+- En el lago, río y cascada, el material del fondo sumergido conserva su aspecto en invierno y durante las nevadas. La nieve se acumula en las superficies expuestas al aire.
+- El visor conserva las ramas al instanciar los árboles de Orilla y Biomas. Al alejarse de la cámara, cambia a mallas de madera más ligeras según su tamaño en pantalla.
+
+---
+
 # Versión de prueba 0.000.00.021 — nubes por delante del terreno
 
 - En el visor WebGL, el terreno y el agua se atenúan al mirarlos a través de una nube. El recorrido termina en la superficie visible y conserva despejados los objetos situados antes de la capa.

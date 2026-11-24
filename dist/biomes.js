@@ -129,11 +129,11 @@ function matrix(x, y, z, sx, sy, sz, angle = 0) {
     return [sx*c,0,-sx*s,0, 0,sy,0,0, sz*s,0,sz*c,0, x,y,z,1];
 }
 
-export function copyPrototype(objects, prototype, x, y, z, size, angle, tint, distant) {
+export function copyPrototype(objects, prototype, x, y, z, size, angle, tint) {
     if (!prototype) return;
     const c = Math.cos(angle), s = Math.sin(angle);
     for (const part of prototype) {
-        if (part.visible === false || (distant && part.detail && part.section !== 7)) continue;
+        if (part.visible === false) continue;
         const pose = part.instance.slice();
         for (let column = 0; column < 16; column += 4) {
             const px = pose[column], pz = pose[column + 2];
@@ -294,7 +294,7 @@ export function createBiome(name, seed, data) {
         const distance=Math.hypot(x-2,z+12);
         const tint=.82+moisture*.27;
         const prototype=data.plants[kind+(key%2===0?'2':'')]??data.plants[kind];
-        copyPrototype(objects,prototype,x,y-.09,z,size,angle,tint,distance>27);
+        copyPrototype(objects,prototype,x,y-.09,z,size,angle,tint);
         if(name==='tropical'&&size>4.5) {
             const palm=kind==='palm';
             const dx=palm?Math.cos(angle)*.050+Math.sin(angle)*-.014:0;
@@ -309,7 +309,7 @@ export function createBiome(name, seed, data) {
                 const px=x+Math.cos(spread)*reach,pz=z+Math.sin(spread)*reach;
                 const plant=secondaryVegetation(name,seed,px,pz);
                 copyPrototype(objects,data.plants[plant],px,height(px,pz)-.02,pz,
-                              .58+moisture*.75,spread,.89+moisture*.17,distance>24);
+                              .58+moisture*.75,spread,.89+moisture*.17);
                 understory++;
             }
         }
@@ -327,7 +327,7 @@ export function createBiome(name, seed, data) {
         rocks++;
     }
     if (name === 'snow')
-        copyPrototype(objects,data.snowCabin,snowCabin[0],height(...snowCabin),snowCabin[1],.91,-.18,1,false);
+        copyPrototype(objects,data.snowCabin,snowCabin[0],height(...snowCabin),snowCabin[1],.91,-.18,1);
     const vines=name==='tropical'?connectVines(objects,data.meshIds.vine,hosts,seed,height):null;
     return {height,terrain,objects,plants:plants+understory,trees:trees.length,understory,rocks,vines};
 }

@@ -130,18 +130,18 @@ vec3 applyWaterFoam(vec3 water,float foam,vec3 light,float ambient,float sun){
  return mix(water,body,clamp(foam,0.0,.93));
 }
 
+float channelCenter(float z){
+ return -3.3+3.1*sin(z*.056)+1.3*sin(z*.133+.9);
+}
+float waterLevel(float z,int mode){
+ return mode==0?0.0:.44+z*.010+(mode==2?3.65*smoothstep(-2.5,1.7,z):0.0);
+}
 
 
 uniform int uWaterMode;
 
-float channelCenter(float z){
- return -3.3+3.1*sin(z*.056)+1.3*sin(z*.133+.9);
-}
 float channelSlope(float z){
  return .1736*cos(z*.056)+.1729*cos(z*.133+.9);
-}
-float waterLevel(float z){
- return uWaterMode==0?0.0:.44+z*.010+(uWaterMode==2?3.65*smoothstep(-2.5,1.7,z):0.0);
 }
 float waterSlope(float z){
  if(uWaterMode==0)return 0.0;
@@ -161,7 +161,7 @@ vec3 waveField(vec2 p){
  return uWaveStrength*vec3(h,dx,dz-channelSlope(z)*dx);
 }
 
-float waterHeight(vec2 p){return waterLevel(p.y)+waveField(p).x;}
+float waterHeight(vec2 p){return waterLevel(p.y,uWaterMode)+waveField(p).x;}
 vec3 fromView(vec3 p){return uCameraEye+uCameraRight*p.x+uCameraUp*p.y-uCameraForward*p.z;}
 uniform vec3 uSunDirection;
 uniform vec3 uMoonDirection;

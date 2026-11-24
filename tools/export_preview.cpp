@@ -79,7 +79,8 @@ struct PreviewExporter {
         scene(makeBuildingScene(BuildingForm::House));
         meta << '}';
         meta << ",\"meshIds\":{\"rock\":" << int(MeshType::RockDetail) << ",\"box\":" << int(MeshType::BeveledBox)
-             << ",\"roof\":" << int(MeshType::Roof) << ",\"vine\":" << int(MeshType::VineStem) << "}";
+             << ",\"roof\":" << int(MeshType::Roof) << ",\"vine\":" << int(MeshType::VineStem)
+             << ",\"wood\":" << int(MeshType::TreeWood) << ",\"branch\":" << int(MeshType::Branch) << "}";
         meta << ",\"plants\":{";
         auto flat = [](float, float) { return 0.f; };
         for (const auto &[name, species] : {

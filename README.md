@@ -2,9 +2,11 @@
 
 Pléiade es un motor gráfico propio. Este repositorio conserva el visor WebGL 2, su paquete Android y la fuente C++ recuperada de la base PC.
 
-## Versión de prueba `0.000.00.018`
+## Instaladores de prueba
 
-La APK de prueba incluye el visor y los recursos para usarlo sin conexión. Arranca en modo Ahorro. Requiere Android 7 o posterior y un WebView actualizado con WebGL 2. El paquete Windows x64 incluye los tres recorridos nativos, SDL2 y los materiales. [Descargas en GitHub Releases](https://github.com/DoomsGarden/Pleiade/releases/tag/v0.000.00.018)
+La APK y el instalador EXE x64 de Windows incluyen el visor WebGL y sus recursos para usarlo sin conexión. Android requiere la versión 7 o posterior y un WebView con WebGL 2. Windows requiere Microsoft Edge WebView2 Runtime. [Descargas en GitHub Releases](https://github.com/DoomsGarden/Pleiade/releases)
+
+La demo nativa de C++ se distribuyó en un paquete x64 con SDL2, materiales y los tres recorridos de prueba. [Paquete nativo .018](https://github.com/DoomsGarden/Pleiade/releases/tag/v0.000.00.018)
 
 - **Orilla** permite explorar una cuenca de 104 m de lado en modo lago, río o cascada. En **Ajustes → Mirar bajo el agua** se puede inspeccionar el fondo.
 - **Edificación** permite alternar entre la cabaña, la casa de teja, el refugio de piedra y el pabellón abierto. **Biomas** abre cinco paisajes que se regeneran con la semilla del mundo.
@@ -12,7 +14,7 @@ La APK de prueba incluye el visor y los recursos para usarlo sin conexión. Arra
 
 Las sombras suavizadas atenúan el borde de cobertura y estabilizan la corrección en superficies rasantes. En C++, la cámara estratégica concentra la resolución cerca del jugador y las muestras de contacto cubren dos distancias.
 
-Las pruebas de rendimiento en la tablet quedan pendientes. El visor y la APK comparten la numeración `0.000.00.000`.
+Las pruebas de rendimiento en la tablet quedan pendientes. Los instaladores comparten la versión del visor publicada en GitHub.
 
 ## Archivos del proyecto
 
@@ -20,6 +22,7 @@ Las pruebas de rendimiento en la tablet quedan pendientes. El visor y la APK com
 | --- | --- |
 | `dist/` | Visor WebGL 2 y recursos listos para servir. |
 | `android/` | Contenedor Android y script para compilar y firmar. |
+| `windows/` | [Contenedor WebView2 e instalador x64](windows/README.md). |
 | `assets/blender/` | Biblioteca editable de materiales y escena de muestras. |
 | `tools/desktop-source/` | Renderer y generación procedural C++ de la base PC `0.003.0.17`, con los cambios recuperados. |
 | `tools/` | Exportador de escenas y preparación de materiales y shaders. |

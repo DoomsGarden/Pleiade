@@ -290,6 +290,22 @@ uniform vec3 uLightColor;
 uniform float uSkyAmbient;
 uniform float uDaylight;
 vec3 atmosphereFog(vec3 d){float h=max(d.y,0.0);return mix(mix(vec3(.006,.009,.018),vec3(.0007,.0015,.004),sqrt(h)),mix(vec3(.38,.49,.60),vec3(.045,.18,.42),sqrt(h)),uDaylight);}
+float channelCenter(float z){
+ return -3.3+3.1*sin(z*.056)+1.3*sin(z*.133+.9);
+}
+float waterLevel(float z,int mode){
+ return mode==0?0.0:.44+z*.010+(mode==2?3.65*smoothstep(-2.5,1.7,z):0.0);
+}
+uniform int uShoreWaterMode;
+float shoreSnowExposure(vec3 position){
+ if(uShoreWaterMode<0)return 1.0;
+ bool lake=uShoreWaterMode==0;
+ // These edges match the water mesh in dist/watershed.js.
+ if(lake?shoreCoordinates(position.xz,true).x>3.5:abs(position.x-channelCenter(position.z))>4.52)return 1.0;
+ // Snow buildup follows the wave envelope rather than appearing between crests.
+ float crest=uWaveStrength*(lake?.091:.043);
+ return smoothstep(crest,crest+.12,position.y-waterLevel(position.z,uShoreWaterMode));
+}
 
 void main(){
  worldPosition=rasterPosition;localPosition=rasterLocal;
@@ -458,6 +474,7 @@ void main(){
  if(ground){
   float drainage=smoothstep(.35,.62,filteredNoise(worldPosition.xz*.262));
   float snow=uClimate.y*smoothstep(.55,.92,n.y)*mix(.35,1.0,drainage);
+  if(snow>0.0)snow*=shoreSnowExposure(worldPosition);
   base=mix(base,vec3(.63,.70,.74),snow);
   base*=1.0-uClimate.z*.28;rough=mix(rough,.47,uClimate.z*.60);
  }
