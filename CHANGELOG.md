@@ -1,3 +1,9 @@
+# Versión de prueba 0.000.00.023 — nubes delante del vidrio
+
+- El reflejo de las ventanas recibe la atenuación y la luz dispersada por las nubes entre la cámara y el vidrio. La transparencia sigue mostrando el interior o el fondo compuesto.
+
+---
+
 # Versión de prueba 0.000.00.022 — nieve y ramas
 
 - En el lago, río y cascada, el material del fondo sumergido conserva su aspecto en invierno y durante las nevadas. La nieve se acumula en las superficies expuestas al aire.
