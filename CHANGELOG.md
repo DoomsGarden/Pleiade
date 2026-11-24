@@ -1,3 +1,12 @@
+# Versión de prueba 0.000.00.021 — nubes por delante del terreno
+
+- En el visor WebGL, el terreno y el agua se atenúan al mirarlos a través de una nube. El recorrido termina en la superficie visible y conserva despejados los objetos situados antes de la capa.
+- La dispersión se mezcla con la luz de la escena antes del mapeo tonal. El agua conserva su reflejo del cielo y recibe la atenuación hasta la cámara.
+- La caché panorámica se reutiliza cuando la superficie queda detrás de todas las capas atravesadas. Si la superficie corta una capa, el visor integra sólo el tramo visible.
+- Al iniciar un vuelo tras cambiar la altura de inspección, la panorámica se actualiza aunque el reloj esté detenido.
+
+---
+
 # Versión de prueba 0.000.00.020 — órdenes de grupo
 
 - En la demo estratégica de escritorio, Mayús+clic añade exploradores a la selección. Las órdenes de grupo asignan destinos distintos en el terreno cargado. Una formación inaccesible conserva las rutas anteriores.

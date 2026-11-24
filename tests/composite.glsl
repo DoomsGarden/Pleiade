@@ -207,19 +207,31 @@ float cloudDensity(vec3 p,float base,float top){
  float shape=skyNoise(q)*.70+skyNoise(q*2.7)*.30;
  return smoothstep(1.0-uCloudAmount*.70,1.0-uCloudAmount*.70+.17,shape)*smoothstep(0.0,.18,height)*(1.0-smoothstep(.65,1.0,height));
 }
-vec4 cloudVolume(vec3 origin,vec3 direction){
- if(uCloudAmount<=0.0)return vec4(0,0,0,1);vec3 d=normalize(direction),accum=vec3(0);float trans=1.0;
+const float cloudReach=6000.0;
+const vec4 clearCloud=vec4(0.0,0.0,0.0,1.0);
+vec2 cloudHeights(int layer){return layer==0?vec2(900.0,1700.0):vec2(3200.0,3650.0);}
+vec2 cloudInterval(float y,float dy,vec2 heights){
+ if(abs(dy)<.000001)return y>heights.x&&y<heights.y?vec2(0.0,cloudReach):vec2(0.0);
+ vec2 hits=(heights-y)/dy;
+ return clamp(vec2(min(hits.x,hits.y),max(hits.x,hits.y)),0.0,cloudReach);
+}
+vec4 cloudVolume(vec3 origin,vec3 d,float distance){
+ if(uCloudAmount<=0.0)return clearCloud;
+ vec3 accum=vec3(0.0);float trans=1.0;
  // A bounded atmospheric volume: two height layers, integrated front to back.
  for(int layer=0;layer<2;layer++){
- int index=d.y>=0.0?layer:1-layer;float base=index==0?900.0:3200.0,top=index==0?1700.0:3650.0;
- float dy=abs(d.y)<.0001?(d.y<0.0?-.0001:.0001):d.y;
- float a=(base-origin.y)/dy,b=(top-origin.y)/dy;
- float entry=max(0.0,min(a,b)),end=min(6000.0,max(a,b));if(end<=entry)continue;
- float stepSize=(end-entry)/24.0;
+ vec2 heights=cloudHeights(d.y>=0.0?layer:1-layer),interval=cloudInterval(origin.y,d.y,heights);
+ float end=min(distance,interval.y);if(end<=interval.x)continue;
+ // Keep the same samples up to the last, possibly partial, step.
+ float stepSize=(interval.y-interval.x)/24.0;
+ float jitter=.25+.5*skyHash(floor(d*2000.0));
  for(int i=0;i<24;i++){
- vec3 pos=origin+d*(entry+(float(i)+.25+.5*skyHash(floor(d*2000.0)))*stepSize);float den=cloudDensity(pos,base,top);
- float extinction=den*.004,alpha=1.0-exp(-extinction*stepSize);
- float toward=cloudDensity(pos+uSkyLightDirection*220.0,base,top);
+ float start=interval.x+float(i)*stepSize;
+ float segment=min(stepSize,end-start);if(segment<=0.0)break;
+ vec3 pos=origin+d*(start+jitter*segment);
+ float extinction=cloudDensity(pos,heights.x,heights.y)*.004;
+ float alpha=1.0-exp(-extinction*segment);
+ float toward=cloudDensity(pos+uSkyLightDirection*220.0,heights.x,heights.y);
  float light=exp(-toward*2.0),forward=pow(max(dot(d,uSkyLightDirection),0.0),12.0);
  vec3 scatter=vec3(.10,.14,.20)*uSkyAmbient+uLightColor*.16*(light+.35*forward);
  accum+=trans*alpha*scatter;trans*=1.0-alpha;if(trans<.015)break;
@@ -238,8 +250,19 @@ vec3 cloudSky(vec3 background,vec3 origin,vec3 direction){
  if(uCloudAmount<=0.0)return background;
  // Reflections viewed from high above the surface sample the clouds from the shading point.
  bool nearObserver=abs(origin.y-uSkyObserver.y)<96.0;
- vec4 cloud=uCloudCached!=0&&nearObserver?cachedCloud(direction):cloudVolume(origin,direction);
+ vec4 cloud=uCloudCached!=0&&nearObserver?cachedCloud(direction):cloudVolume(origin,normalize(direction),cloudReach);
  return cloud.rgb+background*cloud.a;
+}
+vec4 cloudToSurface(vec3 origin,vec3 ray,float distance){
+ if(uCloudAmount<=0.0)return clearCloud;
+ vec2 lower=cloudInterval(origin.y,ray.y,cloudHeights(0));
+ vec2 upper=cloudInterval(origin.y,ray.y,cloudHeights(1));
+ bool hitsLower=lower.x<lower.y,hitsUpper=upper.x<upper.y;
+ if((!hitsLower||distance<=lower.x)&&(!hitsUpper||distance<=upper.x))return clearCloud;
+ // The panorama represents the entire ray. A surface can reuse it only
+ // when it is behind every intersected layer.
+ if(uCloudCached!=0&&(!hitsLower||distance>=lower.y)&&(!hitsUpper||distance>=upper.y))return cachedCloud(ray);
+ return cloudVolume(origin,ray,distance);
 }
 vec3 celestialSky(vec3 direction){
  vec3 d=normalize(direction);float h=max(d.y,0.0);
@@ -408,27 +431,29 @@ float channelFoam(vec2 p,float slope,float footprint){
  }
  return white;
 }
-bool waterSurface(vec2 screen,out vec3 result,out float coverage){
+bool waterSurface(vec2 screen,out vec3 result,out float coverage,out float distance){
  if(uWater==0)return false;
  float depth=texture(uDepth,screen).r,surfaceDepth=texture(uWaterDepth,screen).r;
  if(surfaceDepth>=.999999||cameraDepth(surfaceDepth)>=cameraDepth(depth)-.002)return false;
- vec3 point=fromView(viewPosition(screen,surfaceDepth));
+ vec3 viewPoint=viewPosition(screen,surfaceDepth);
+ vec3 point=fromView(viewPoint);
+ distance=length(viewPoint);
  float slope=waterSlope(point.z);
  vec3 wave=waveField(point.xz);
- float footprint=length(point-uCameraEye)*uSkyPixelAngle;
+ float footprint=distance*uSkyPixelAngle;
  float foam=0.0;
  for(int i=0;i<10;i++){
   if(i>=uContactCount)break;
   vec3 obstacle=uWaterContacts[i];
   vec2 delta=point.xz-obstacle.xy;
-  float distance=length(delta);
-  if(distance>obstacle.z+2.0)continue;
-  float edge=distance-obstacle.z;
+  float obstacleDistance=length(delta);
+  if(obstacleDistance>obstacle.z+2.0)continue;
+  float edge=obstacleDistance-obstacle.z;
   float spread=exp(-max(0.0,edge)*2.3)*smoothstep(-.10,.09,edge);
   float phase=21.0*edge-uFlowTime*5.2+float(i)*2.31;
   float energy=max(uWaveStrength,uWaterMode==0?0.0:.43);
   float clear=1.0-smoothstep(.025,.17,footprint);
-  wave.yz+=delta/max(distance,.001)*.095*energy*spread*cos(phase)*clear;
+  wave.yz+=delta/max(obstacleDistance,.001)*.095*energy*spread*cos(phase)*clear;
   foam=max(foam,obstacleFoam(obstacle.xy,delta,obstacle.z,uWaterTime,energy,footprint));
  }
  // High frequency slopes fade with distance; the broad reflection follows the wave.
@@ -485,30 +510,31 @@ bool waterSurface(vec2 screen,out vec3 result,out float coverage){
 }
 
 vec3 aces(vec3 x){return clamp((x*(2.51*x+.03))/(x*(2.43*x+.59)+.14),0.0,1.0);}
-vec3 mapped(vec2 p,float contact){
- float depth=texture(uDepth,p).r;
- vec3 c=texture(uDirect,p).rgb+texture(uAmbient,p).rgb*contact;
- if(depth>=.999999)c=celestialSky(uCameraForward+uCameraRight*((p.x*2.0-1.0)/uProjectionScale.x)+uCameraUp*((p.y*2.0-1.0)/uProjectionScale.y));
- return pow(aces(c*uExposure),vec3(1.0/2.2));
+vec3 mapRadiance(vec3 linear){return pow(aces(linear*uExposure),vec3(1.0/2.2));}
+vec3 mapped(vec2 p,float contact,vec4 cloud){
+ vec3 surface=texture(uDirect,p).rgb+texture(uAmbient,p).rgb*contact;
+ return mapRadiance(cloud.rgb+surface*cloud.a);
 }
-vec3 opaqueNeighbour(vec2 p,float centreDepth,vec3 centre,float contact){
+vec3 opaqueNeighbour(vec2 p,float centreDepth,vec3 centre,float contact,vec4 cloud){
  float depth=texture(uDepth,p).r;
  if(depth>=.999999)return centre;
  float z=-viewPosition(p,depth).z;
  float cz=-viewPosition(uv,centreDepth).z;
  if(abs(z-cz)>max(.03,.015*cz))return centre;
- return mapped(p,contact);
+ return mapped(p,contact,cloud);
 }
 void main(){
  float depth=texture(uDepth,uv).r;
+ vec3 ray=normalize(uCameraForward+uCameraRight*((uv.x*2.0-1.0)/uProjectionScale.x)+uCameraUp*((uv.y*2.0-1.0)/uProjectionScale.y));
  vec3 c;
  if(depth>=.999999){
- vec3 ray=normalize(uCameraForward+uCameraRight*((uv.x*2.0-1.0)/uProjectionScale.x)+uCameraUp*((uv.y*2.0-1.0)/uProjectionScale.y));
- c=pow(aces(cloudSky(celestialSky(ray),uCameraEye,ray)*uExposure),vec3(1.0/2.2));
+ c=mapRadiance(cloudSky(celestialSky(ray),uCameraEye,ray));
  }else{
- float contact=ambientContact(uv);c=mapped(uv,contact);
+ vec4 cloud=cloudToSurface(uCameraEye,ray,length(viewPosition(uv,depth)));
+ float contact=ambientContact(uv);c=mapped(uv,contact,cloud);
+ // Use the centre ray for the antialiasing taps. They only filter nearby surfaces.
  if(uAA!=0){vec2 px=1.0/vec2(textureSize(uDepth,0));
- vec3 avg=(opaqueNeighbour(uv+vec2(px.x,0),depth,c,contact)+opaqueNeighbour(uv-vec2(px.x,0),depth,c,contact)+opaqueNeighbour(uv+vec2(0,px.y),depth,c,contact)+opaqueNeighbour(uv-vec2(0,px.y),depth,c,contact))*.25;
+ vec3 avg=(opaqueNeighbour(uv+vec2(px.x,0),depth,c,contact,cloud)+opaqueNeighbour(uv-vec2(px.x,0),depth,c,contact,cloud)+opaqueNeighbour(uv+vec2(0,px.y),depth,c,contact,cloud)+opaqueNeighbour(uv-vec2(0,px.y),depth,c,contact,cloud))*.25;
  c=mix(c,avg,.45*smoothstep(.045,.22,length(c-avg)));}
  }
 
@@ -516,7 +542,10 @@ void main(){
   float fog=1.0-exp(viewPosition(uv,depth).z*.155);
   c=mix(c,vec3(.046,.185,.218)*mix(.33,1.0,uDaylight),fog);
  }
- vec3 waterColor;float waterCoverage;
- if(waterSurface(uv,waterColor,waterCoverage))c=mix(c,pow(aces(waterColor*uExposure),vec3(1.0/2.2)),waterCoverage);
+ vec3 waterColor;float waterCoverage,waterDistance;
+ if(waterSurface(uv,waterColor,waterCoverage,waterDistance)){
+  vec4 cloud=cloudToSurface(uCameraEye,ray,waterDistance);
+  c=mix(c,mapRadiance(cloud.rgb+waterColor*cloud.a),waterCoverage);
+ }
  frag=vec4(c,1.0);
 }

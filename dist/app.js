@@ -5,7 +5,7 @@ import {climateAt,seasons,weatherModes} from './climate.js';
 import {moveDetached,plantContact} from './plant_contact.js';
 import {ceiling,flightLimits,fly} from './flight.js';
 const $=id=>document.getElementById(id), canvas=$('view');
-const VERSION='0.000.00.020';
+const VERSION='0.000.00.021';
 const params=new URLSearchParams(location.search);
 const state={ready:false,scene:'shore',biome:'forest',waterMode:'lake',underwater:false,buildingForm:'cabin',season:'summer',weather:'clear',quality:window.PleiadeAndroid?'eco':'balanced',materials:true,shadows:true,shadowSoft:true,water:true,ssr:false,contact:false,animation:true,waveStrength:.35,time:0,waveTime:0,frames:0,errors:[],fps:0,hdr:false,paused:false};
 window.pleiade={state};
@@ -325,6 +325,8 @@ function beginFlight(){
   previousView:{skyView,underwater:state.underwater}};
  state.underwater=false;$('dive').textContent='Mirar bajo el agua';skyView=false;
  flight.eye=fly(flight.eye,flight.yaw,[0,0,0],0,flightEdge(),surfaceAt);
+ // The starting altitude can jump across layers even when the frame clock is paused.
+ cloudBuiltAt=-Infinity;
  $('flight-controls').hidden=false;$('orbit-controls').hidden=true;
  $('fly').setAttribute('aria-pressed','true');
  $('flight-height').textContent=Math.round(flight.eye[1])+' m';

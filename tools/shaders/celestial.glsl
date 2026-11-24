@@ -42,25 +42,36 @@ float cloudDensity(vec3 p,float base,float top){
  float shape=skyNoise(q)*.70+skyNoise(q*2.7)*.30;
  return smoothstep(1.0-uCloudAmount*.70,1.0-uCloudAmount*.70+.17,shape)*smoothstep(0.0,.18,height)*(1.0-smoothstep(.65,1.0,height));
 }
-vec4 cloudVolume(vec3 origin,vec3 direction){
- if(uCloudAmount<=0.0)return vec4(0,0,0,1);vec3 d=normalize(direction),accum=vec3(0);float trans=1.0;
+const float cloudReach=6000.0;
+const vec4 clearCloud=vec4(0.0,0.0,0.0,1.0);
+vec2 cloudHeights(int layer){return layer==0?vec2(900.0,1700.0):vec2(3200.0,3650.0);}
+vec2 cloudInterval(float y,float dy,vec2 heights){
+ if(abs(dy)<.000001)return y>heights.x&&y<heights.y?vec2(0.0,cloudReach):vec2(0.0);
+ vec2 hits=(heights-y)/dy;
+ return clamp(vec2(min(hits.x,hits.y),max(hits.x,hits.y)),0.0,cloudReach);
+}
+vec4 cloudVolume(vec3 origin,vec3 d,float distance){
+ if(uCloudAmount<=0.0)return clearCloud;
+ vec3 accum=vec3(0.0);float trans=1.0;
  // A bounded atmospheric volume: two height layers, integrated front to back.
  for(int layer=0;layer<2;layer++){
- int index=d.y>=0.0?layer:1-layer;float base=index==0?900.0:3200.0,top=index==0?1700.0:3650.0;
- float dy=abs(d.y)<.0001?(d.y<0.0?-.0001:.0001):d.y;
- float a=(base-origin.y)/dy,b=(top-origin.y)/dy;
- float entry=max(0.0,min(a,b)),end=min(6000.0,max(a,b));if(end<=entry)continue;
- float stepSize=(end-entry)/24.0;
+ vec2 heights=cloudHeights(d.y>=0.0?layer:1-layer),interval=cloudInterval(origin.y,d.y,heights);
+ float end=min(distance,interval.y);if(end<=interval.x)continue;
+ // Keep the same samples up to the last, possibly partial, step.
+ float stepSize=(interval.y-interval.x)/24.0;
+ float jitter=.25+.5*skyHash(floor(d*2000.0));
  for(int i=0;i<24;i++){
- vec3 pos=origin+d*(entry+(float(i)+.25+.5*skyHash(floor(d*2000.0)))*stepSize);float den=cloudDensity(pos,base,top);
- float extinction=den*.004,alpha=1.0-exp(-extinction*stepSize);
- float toward=cloudDensity(pos+uSkyLightDirection*220.0,base,top);
+ float start=interval.x+float(i)*stepSize;
+ float segment=min(stepSize,end-start);if(segment<=0.0)break;
+ vec3 pos=origin+d*(start+jitter*segment);
+ float extinction=cloudDensity(pos,heights.x,heights.y)*.004;
+ float alpha=1.0-exp(-extinction*segment);
+ float toward=cloudDensity(pos+uSkyLightDirection*220.0,heights.x,heights.y);
  float light=exp(-toward*2.0),forward=pow(max(dot(d,uSkyLightDirection),0.0),12.0);
  vec3 scatter=vec3(.10,.14,.20)*uSkyAmbient+uLightColor*.16*(light+.35*forward);
  accum+=trans*alpha*scatter;trans*=1.0-alpha;if(trans<.015)break;
  }}return vec4(accum,trans);
 }
-vec3 cloudSky(vec3 background,vec3 origin,vec3 direction){vec4 c=cloudVolume(origin,direction);return c.rgb+background*c.a;}
 vec3 celestialSky(vec3 direction){
  vec3 d=normalize(direction);float h=max(d.y,0.0);
  vec3 night=mix(vec3(.006,.009,.018),vec3(.0007,.0015,.004),sqrt(h));

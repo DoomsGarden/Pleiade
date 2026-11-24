@@ -50,6 +50,8 @@ En **Ajustes → Cielo y mundo → Volar por la escena**, la cámara toma la pos
 
 La cámara mantiene margen sobre el terreno y el agua. Puedes despegar desde las escenas locales y ascender hasta 6 km sobre el nivel de referencia, por encima de las dos capas de nubes. El recorrido conserva los límites horizontales de las escenas de prueba.
 
+Desde `0.000.00.021`, activa **Cobertura de nubes**, fija la altura de inspección en **2.200 m** y pulsa **Volar por la escena**. Arrastra para mirar hacia el lago a través de la capa inferior. Repite a **350 m** para ver la orilla desde debajo de la capa. Las nubes siguen desactivadas al inicio. La composición volumétrica en el pase del vidrio queda pendiente.
+
 ## Regenerar materiales y escenas
 
 Blender genera los mapas de color, opacidad, normales tangentes y rugosidad del atlas. El exportador C++ actualiza las mallas y las escenas de referencia del visor desde el renderer.

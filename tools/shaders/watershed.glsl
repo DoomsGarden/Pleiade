@@ -61,27 +61,29 @@ float channelFoam(vec2 p,float slope,float footprint){
  }
  return white;
 }
-bool waterSurface(vec2 screen,out vec3 result,out float coverage){
+bool waterSurface(vec2 screen,out vec3 result,out float coverage,out float distance){
  if(uWater==0)return false;
  float depth=texture(uDepth,screen).r,surfaceDepth=texture(uWaterDepth,screen).r;
  if(surfaceDepth>=.999999||cameraDepth(surfaceDepth)>=cameraDepth(depth)-.002)return false;
- vec3 point=fromView(viewPosition(screen,surfaceDepth));
+ vec3 viewPoint=viewPosition(screen,surfaceDepth);
+ vec3 point=fromView(viewPoint);
+ distance=length(viewPoint);
  float slope=waterSlope(point.z);
  vec3 wave=waveField(point.xz);
- float footprint=length(point-uCameraEye)*uSkyPixelAngle;
+ float footprint=distance*uSkyPixelAngle;
  float foam=0.0;
  for(int i=0;i<10;i++){
   if(i>=uContactCount)break;
   vec3 obstacle=uWaterContacts[i];
   vec2 delta=point.xz-obstacle.xy;
-  float distance=length(delta);
-  if(distance>obstacle.z+2.0)continue;
-  float edge=distance-obstacle.z;
+  float obstacleDistance=length(delta);
+  if(obstacleDistance>obstacle.z+2.0)continue;
+  float edge=obstacleDistance-obstacle.z;
   float spread=exp(-max(0.0,edge)*2.3)*smoothstep(-.10,.09,edge);
   float phase=21.0*edge-uFlowTime*5.2+float(i)*2.31;
   float energy=max(uWaveStrength,uWaterMode==0?0.0:.43);
   float clear=1.0-smoothstep(.025,.17,footprint);
-  wave.yz+=delta/max(distance,.001)*.095*energy*spread*cos(phase)*clear;
+  wave.yz+=delta/max(obstacleDistance,.001)*.095*energy*spread*cos(phase)*clear;
   foam=max(foam,obstacleFoam(obstacle.xy,delta,obstacle.z,uWaterTime,energy,footprint));
  }
  // High frequency slopes fade with distance; the broad reflection follows the wave.
