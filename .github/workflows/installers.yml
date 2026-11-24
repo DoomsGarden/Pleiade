@@ -1,0 +1,87 @@
+name: Adjuntar instaladores al lanzamiento
+run-name: Adjuntar instaladores de ${{ inputs.release }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Etiqueta publicada del motor
+        required: true
+        type: string
+      packages_commit:
+        description: SHA completo de los instaladores en android-downloads
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: installers-${{ inputs.release }}
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    name: Verificar y subir APK y EXE
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.release }}
+      PACKAGES_COMMIT: ${{ inputs.packages_commit }}
+    steps:
+      - name: Comprobar el lanzamiento y el registro de binarios
+        id: provenance
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]\.[0-9]{3}\.[0-9]{2}\.[0-9]{3}$ ]]
+          [[ "$PACKAGES_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" |
+            jq -e --arg tag "$RELEASE_TAG" '.tag_name == $tag and .draft == false and .published_at != null' >/dev/null
+          gh api "repos/$GITHUB_REPOSITORY/compare/$PACKAGES_COMMIT...android-downloads" |
+            jq -e '.status == "ahead" or .status == "identical"' >/dev/null
+          source=$(gh api "repos/$GITHUB_REPOSITORY/commits/refs/tags/$RELEASE_TAG" --jq .sha)
+          printf 'source=%s\n' "$source" >>"$GITHUB_OUTPUT"
+
+      - name: Obtener los binarios verificados
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.packages_commit }}
+          persist-credentials: false
+          sparse-checkout: |
+            apk
+            windows
+            installers
+
+      - name: Subir los archivos que falten
+        env:
+          ENGINE_COMMIT: ${{ steps.provenance.outputs.source }}
+        run: |
+          set -euo pipefail
+          version=${RELEASE_TAG#v}
+          test "$(git rev-parse HEAD)" = "$PACKAGES_COMMIT"
+          test "$(cat "installers/$version.commit")" = "$ENGINE_COMMIT"
+          files=("apk/Pleiade-$version.apk" "windows/Pleiade-$version-Windows-x64-Setup.exe")
+          checksums="installers/Pleiade-$version-SHA256SUMS.txt"
+          for package in "${files[@]}" "$checksums"; do
+            test -f "$package" && test ! -L "$package"
+          done
+          cmp "$checksums" <(sha256sum "${files[@]}" | sed -E 's|  (apk/|windows/)|  |')
+
+          releases=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")
+          pending=()
+          for package in "${files[@]}" "$checksums"; do
+            name=${package##*/}
+            digest="sha256:$(sha256sum <"$package" | cut -d' ' -f1)"
+            asset=$(jq -c --arg name "$name" '.assets[] | select(.name == $name)' <<<"$releases")
+            if [[ -z "$asset" ]]; then
+              pending+=("$package")
+            else
+              jq -e --arg digest "$digest" '.state == "uploaded" and .digest == $digest' <<<"$asset" >/dev/null
+            fi
+          done
+          if (( ${#pending[@]} )); then
+            gh release upload "$RELEASE_TAG" "${pending[@]}" --repo "$GITHUB_REPOSITORY"
+          fi
