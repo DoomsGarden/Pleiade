@@ -4,11 +4,11 @@
 #include "pacing.hpp"
 #include "player_controller.hpp"
 #include "renderer.hpp"
+#include "scout_group.hpp"
 #include "shore.hpp"
 #include "simulation.hpp"
 #include "strategy_selection.hpp"
 #include "version.hpp"
-#include "visibility.hpp"
 #include "world.hpp"
 #include <chrono>
 #include <filesystem>
@@ -486,7 +486,7 @@ void saveReport(const Options &o, const Renderer &r, const std::vector<Sample> &
          << ",\n  \"spatial_antialiasing\": " << (o.reference && o.aa ? "true" : "false")
          << ",\n  \"world_seed\": " << o.seed << ",\n  \"lod_enabled\": " << (o.lod ? "true" : "false")
          << ",\n  \"world_radius\": " << o.worldRadius
-         << ",\n  \"actors\": " << (o.world ? o.actors + (o.fowDemo ? 1 : 0) : 0)
+         << ",\n  \"actors\": " << (o.world ? o.actors + (o.fowDemo ? ScoutGroup::size : 0) : 0)
          << ",\n  \"chunk_budget_per_frame\": " << o.chunkBudget
          << ",\n  \"generation_soft_budget_ms\": 2.0"
          << ",\n  \"peak_resident_chunks\": " << peakChunks
@@ -584,7 +584,7 @@ int run(int argc, char **argv) {
     if (o.world)
         world = std::make_unique<ProceduralWorld>(uint32_t(o.seed), o.worldRadius, o.reference);
     std::unique_ptr<VisibilityMap> visibility;
-    Scout scout;
+    ScoutGroup scoutGroup;
     double lastVisibilityTime = -1;
     if (o.fowDemo)
         visibility = std::make_unique<VisibilityMap>();
@@ -643,8 +643,19 @@ int run(int argc, char **argv) {
     std::optional<CinematicTrack> cinematic;
     if (o.cinematic)
         cinematic = demoTrack(o);
-    std::optional<std::array<float, 2>> pendingPick;
-    bool scoutSelected = false, jumpQueued = false;
+    struct StrategyClick {
+        float x, y;
+        bool additive;
+    };
+    struct StrategyView {
+        Camera camera;
+        float aspect;
+    };
+    std::vector<StrategyClick> pendingPicks;
+    std::optional<StrategyView> presentedStrategy;
+    Uint16 modifiers = SDL_GetModState();
+    const char *orderStatus = nullptr;
+    bool jumpQueued = false;
     std::cout << "PLEIADE " << version << "\n"
               << renderer.vendor << " | " << renderer.gpu << " | " << renderer.api << "\n";
     if (renderer.gpu.find("llvmpipe") != std::string::npos)
@@ -652,6 +663,8 @@ int run(int argc, char **argv) {
     std::cout << "TAB camera, RMB orbit/look, WASD move, wheel strategy zoom, Shift fast\n"
               << (o.walkDemo ? "Space jump\n" : "Q/E inspection height\n")
               << "F1 help, F2 culling, F3 shadows, F4 HUD, F12 screenshot, Escape exit\n";
+    if (visibility)
+        std::cout << "LMB select or order, Shift+LMB add scout\n";
     const int limit = o.frames ? o.frames + o.warmup : 0;
     std::vector<Sample> samples;
     samples.reserve(limit ? limit : 10000);
@@ -702,11 +715,17 @@ int run(int argc, char **argv) {
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT)
                 running = false;
+            if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP)
+                modifiers = event.key.keysym.mod;
             if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
                 SDL_SetRelativeMouseMode(SDL_FALSE);
                 mouse = false;
                 jumpQueued = false;
+                modifiers = KMOD_NONE;
+                pendingPicks.clear();
             }
+            if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED)
+                modifiers = SDL_GetModState();
             if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_RIGHT &&
                 !o.benchmark && !cinematic) {
                 mouse = true;
@@ -725,12 +744,13 @@ int run(int argc, char **argv) {
                 }
             }
             if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT &&
-                visibility && camera.strategy && !mouse && !o.benchmark) {
+                presentedStrategy && camera.strategy && !mouse && !o.benchmark) {
                 int windowWidth, windowHeight;
                 SDL_GetWindowSize(platform.window, &windowWidth, &windowHeight);
                 if (windowWidth > 0 && windowHeight > 0)
-                    pendingPick = std::array<float, 2>{2.f * (event.button.x + .5f) / windowWidth - 1,
-                                                      1 - 2.f * (event.button.y + .5f) / windowHeight};
+                    pendingPicks.push_back({2.f * (event.button.x + .5f) / windowWidth - 1,
+                                            1 - 2.f * (event.button.y + .5f) / windowHeight,
+                                            (modifiers & KMOD_SHIFT) != 0});
             }
             if (event.type == SDL_MOUSEWHEEL && camera.strategy && !o.benchmark)
                 camera.distance = std::clamp(camera.distance - event.wheel.y * 2.f, 8.f, 100.f);
@@ -749,9 +769,10 @@ int run(int argc, char **argv) {
                             camera.distance = 22;
                         }
                         camera.strategy = !camera.strategy;
-                        scoutSelected = false;
+                        scoutGroup.selected.fill(false);
+                        orderStatus = nullptr;
                         jumpQueued = false;
-                        pendingPick.reset();
+                        pendingPicks.clear();
                         ++toggles;
                     }
                     if (key == SDLK_F2)
@@ -891,34 +912,51 @@ int run(int argc, char **argv) {
             if (visibility) {
                 auto fogStart = Clock::now();
                 visibility->rebuild(scene);
-                if (pendingPick && worldStats.pending == 0) {
-                    constexpr uint64_t scoutId = 1, structureId = 2;
-                    std::vector<StrategyPickTarget> targets{
-                        {scoutId, scout.position + V3{0, .9f, 0}, {.75f, .9f, .75f}}};
+                if (presentedStrategy && !pendingPicks.empty() && worldStats.pending == 0) {
+                    constexpr uint64_t structureId = 0;
+                    std::vector<StrategyPickTarget> targets;
+                    for (size_t i = 0; i < ScoutGroup::size; ++i)
+                        targets.push_back({i + 1, scoutGroup.scouts[i].position + V3{0, .9f, 0},
+                                           {.75f, .9f, .75f}});
                     for (const auto &object : scene.objects)
                         if (object.visible && (object.mesh == MeshType::Cube || object.mesh == MeshType::Roof ||
                                                object.mesh == MeshType::HipRoof))
                             targets.push_back({structureId, object.center, object.half});
-                    const auto click = *pendingPick;
-                    const auto hit = pickStrategy(camera, click[0], click[1], float(w) / h, targets, terrainHeight);
-                    if (hit && hit->entity == scoutId)
-                        scoutSelected = true;
-                    else if (hit && !hit->entity && scoutSelected)
-                        scout.command(*visibility, hit->point);
-                    else if (!hit)
-                        scoutSelected = false;
+                    const auto loadedHeight = [&](float x, float z) {
+                        return visibility->residentCell(visibility->index(x, z))
+                                   ? terrainHeight(x, z) : std::numeric_limits<float>::quiet_NaN();
+                    };
+                    for (const auto &click : pendingPicks) {
+                        const auto hit = pickStrategy(presentedStrategy->camera, click.x, click.y,
+                                                      presentedStrategy->aspect, targets, loadedHeight);
+                        if (hit && hit->entity && *hit->entity != structureId) {
+                            scoutGroup.select(size_t(*hit->entity - 1), click.additive);
+                            orderStatus = nullptr;
+                        } else if (hit && !hit->entity && !click.additive && scoutGroup.selectionCount()) {
+                            orderStatus = scoutGroup.command(*visibility, hit->point) ? "ORDER ACCEPTED" : "ROUTE UNAVAILABLE";
+                        } else if (!hit && !click.additive) {
+                            scoutGroup.selected.fill(false);
+                            orderStatus = nullptr;
+                        }
+                    }
                 }
-                pendingPick.reset();
+                pendingPicks.clear();
                 if (worldStats.pending == 0)
-                    scout.advance(*visibility,
-                                  o.freeze ? 0.0 : (o.benchmark && !o.seconds ? 1.0 / 60.0 : realDt));
+                    for (auto &scout : scoutGroup.scouts)
+                        scout.advance(*visibility,
+                                      o.freeze ? 0.0 : (o.benchmark && !o.seconds ? 1.0 / 60.0 : realDt));
                 if (worldStats.pending == 0 &&
                     (lastVisibilityTime < 0 || scene.time - lastVisibilityTime >= .1 ||
                      visibility->revision == 0)) {
-                    visibility->reveal(scout.position, float(o.visionRadius));
+                    std::array<V3, ScoutGroup::size> observers{};
+                    for (size_t i = 0; i < ScoutGroup::size; ++i)
+                        observers[i] = scoutGroup.scouts[i].position;
+                    visibility->reveal(observers, float(o.visionRadius));
                     lastVisibilityTime = scene.time;
                 }
-                scout.append(scene, scene.time);
+                if (worldStats.pending == 0)
+                    for (const auto &scout : scoutGroup.scouts)
+                        scout.append(scene, scene.time);
                 fogUpdateMs = milliseconds(fogStart, Clock::now());
                 renderer.setVisibility(visibility.get(), o.fowCulling);
             }
@@ -973,13 +1011,17 @@ int run(int argc, char **argv) {
                     scale, mint);
             if (help) {
                 float yy = 110 * scale;
-                ui.rect(20, yy, 290 * scale, 90 * scale, {.025f, .045f, .055f, .94f});
+                ui.rect(20, yy, 290 * scale, (visibility ? 105 : 90) * scale,
+                        {.025f, .045f, .055f, .94f});
                 int row = 0;
                 for (auto s : {"WASD MOVE / SHIFT FAST",
                                o.walkDemo ? "RIGHT MOUSE LOOK / SPACE JUMP" : "RIGHT MOUSE LOOK / Q E HEIGHT",
                                "WHEEL ZOOM IN STRATEGY MODE", "F2 CULL / F3 SHADOW / F4 HUD",
                                "F9 MATERIALS / F10 WATER / F12 CAPTURE"})
                     ui.text(20 + 10 * scale, yy + (10 + row++ * 15) * scale, s, scale, white);
+                if (visibility)
+                    ui.text(20 + 10 * scale, yy + (10 + row * 15) * scale,
+                            "CLICK SCOUT / SHIFT CLICK ADD", scale, white);
             }
             if (o.world) {
                 float x = float(w) - 20 - 260 * scale;
@@ -996,7 +1038,7 @@ int run(int argc, char **argv) {
                          "TREES " + std::to_string(worldStats.trees) + " / GRASS " +
                              std::to_string(worldStats.grass),
                          "STRUCTURES " + std::to_string(worldStats.structures) + " / ACTORS " +
-                             std::to_string(o.actors + (o.fowDemo ? 1 : 0)),
+                             std::to_string(o.actors + (o.fowDemo ? ScoutGroup::size : 0)),
                          "UPDATE " + fixed(worldStats.generationMs) + " MS / FAR LOD " +
                              std::to_string(stats.lodFar),
                          "TRIANGLES " + std::to_string(stats.triangles),
@@ -1011,10 +1053,16 @@ int run(int argc, char **argv) {
             }
             if (visibility) {
                 float mx = float(w) - 184, my = float(h) - 170;
-                ui.rect(mx - 4, my - 24, 168, 188, {.015f, .02f, .025f, 1});
-                ui.text(mx, my - 18,
-                        scoutSelected ? "SCOUT / CLICK TO MOVE" : "SCOUT / CLICK TO SELECT", 1,
-                        {.7f, .9f, 1, 1});
+                ui.rect(mx - 4, my - 26, 168, 190, {.015f, .02f, .025f, 1});
+                const auto selectedCount = scoutGroup.selectionCount();
+                ui.text(mx, my - 22, "SCOUTS " + std::to_string(selectedCount) + "/" +
+                            std::to_string(ScoutGroup::size) + " SELECTED", 1, {.7f, .9f, 1, 1});
+                const char *hint = worldStats.pending > 0 ? "LOADING TERRAIN"
+                                   : !camera.strategy    ? "TAB STRATEGY VIEW"
+                                   : orderStatus         ? orderStatus
+                                   : selectedCount       ? "CLICK TERRAIN TO MOVE"
+                                                         : "CLICK SCOUT TO SELECT";
+                ui.text(mx, my - 11, hint, 1, {.7f, .9f, 1, 1});
                 for (int z = 0; z < 32; ++z)
                     for (int x = 0; x < 32; ++x) {
                         int visibleCell = 0, exploredCell = 0;
@@ -1029,18 +1077,22 @@ int run(int argc, char **argv) {
                                                   : V4{.015f, .02f, .025f, 1};
                         ui.rect(mx + x * 5, my + z * 5, 5, 5, color);
                     }
-                float sx = (scout.position.x + 128) / 256 * 160,
-                      sz = (scout.position.z + 128) / 256 * 160;
-                ui.rect(mx + sx - 2, my + sz - 2, 4, 4, {.1f, .65f, 1, 1});
-                auto scoutClip = camera.projection(float(w) / h) * camera.view() *
-                                 V4{scout.position.x, scout.position.y + 2.2f, scout.position.z, 1};
-                if (scoutClip.w > 0) {
+                const M4 viewProjection = camera.projection(float(w) / h) * camera.view();
+                constexpr float mapScale = 160 / (VisibilityMap::size * VisibilityMap::cell);
+                for (size_t i = 0; i < ScoutGroup::size && worldStats.pending == 0; ++i) {
+                    const V3 p = scoutGroup.scouts[i].position;
+                    const V4 marker = scoutGroup.selected[i] ? mint : V4{.2f, .8f, 1, 1};
+                    float sx = (p.x - VisibilityMap::origin) * mapScale,
+                          sz = (p.z - VisibilityMap::origin) * mapScale;
+                    ui.rect(mx + sx - 1.5f, my + sz - 1.5f, 3, 3, marker);
+                    const auto scoutClip = viewProjection * V4{p.x, p.y + 2.2f, p.z, 1};
+                    if (scoutClip.w <= 0)
+                        continue;
                     float px = (scoutClip.x / scoutClip.w * .5f + .5f) * w,
                           py = (.5f - scoutClip.y / scoutClip.w * .5f) * h;
                     if (px > 20 && px < w - 60 && py > 20 && py < h - 20) {
-                        const V4 marker = scoutSelected ? mint : V4{.2f, .8f, 1, 1};
                         ui.rect(px - 3, py - 3, 6, 6, marker);
-                        ui.text(px - 15, py - 14, "SCOUT", 1, marker);
+                        ui.text(px - 3, py - 14, std::to_string(i + 1), 1, marker);
                     }
                 }
             }
@@ -1063,6 +1115,10 @@ int run(int argc, char **argv) {
         double captureMs = captureNow ? milliseconds(captureStart, Clock::now()) : 0;
         auto swapStart = Clock::now();
         SDL_GL_SwapWindow(platform.window);
+        if (visibility && camera.strategy && worldStats.pending == 0)
+            presentedStrategy = StrategyView{camera, float(w) / h};
+        else
+            presentedStrategy.reset();
         auto workEnd = Clock::now();
         pacer.wait(start);
         auto end = Clock::now();
