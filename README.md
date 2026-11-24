@@ -60,6 +60,11 @@ python3 tools/prepare_shaders.py
 python3 tools/prepare_desktop_demo.py build/materials
 ./build/pleiade-export-preview build/materials dist/assets
 ```
+## GitHub Pages
+
+En **Actions → Visor en GitHub Pages**, selecciona `main` e introduce la etiqueta de una versión ya publicada en GitHub Releases. La ejecución prepara y valida `dist/` de esa versión. El artefacto de la ejecución permite revisar el contenido antes de publicar.
+
+Para publicar, el propietario debe elegir **GitHub Actions** como fuente en **Settings → Pages**. Después puede iniciar la misma ejecución con **Publicar el visor en GitHub Pages** activado. El sitio sirve el JavaScript, los estilos y los recursos de `dist/` de la versión seleccionada. En esta cuenta personal, ese contenido será público si se activa Pages. [Configuración de GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site)
 
 ## Compilar Android
 
