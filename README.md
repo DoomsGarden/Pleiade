@@ -38,9 +38,9 @@ PLEIADE_ANDROID_MOCK=1 node tests/runtime_check.mjs
 
 ## GitHub Pages
 
-En **Actions → Visor en GitHub Pages**, selecciona `main` e introduce la etiqueta de una versión ya publicada en GitHub Releases. La ejecución prepara y valida `dist/` de esa versión. El artefacto de la ejecución permite revisar el contenido antes de publicar.
+En **Actions → Visor en GitHub Pages**, selecciona `main`. Para publicar una versión nueva, indica la etiqueta, el SHA revisado, el ID de **Engine checks** aprobado para ese SHA y la referencia a la valoración de Vésper y Lumen. Activa **Publicar el visor en GitHub Pages**. Una misma ejecución prepara `dist/`, crea la versión de prueba en Releases y publica Pages. Con la casilla desactivada puedes revisar el paquete.
 
-Para publicar, el propietario debe elegir **GitHub Actions** como fuente en **Settings → Pages**. Después puede iniciar la misma ejecución con **Publicar el visor en GitHub Pages** activado. El sitio sirve el JavaScript, los estilos y los recursos de `dist/` de la versión seleccionada. En esta cuenta personal, ese contenido será público si se activa Pages. [Configuración de GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site)
+Para volver a desplegar una versión existente, basta con su etiqueta publicada y la casilla de publicación. El repositorio tiene **GitHub Actions** como fuente de Pages. El visor espejo lee las versiones publicadas del motor. [Abrir visor público](https://doomsgarden.github.io/Pleiade-visor/)
 
 ## Compilar Android
 

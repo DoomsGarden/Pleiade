@@ -6,13 +6,22 @@ on:
   workflow_dispatch:
     inputs:
       release:
-        description: Etiqueta de una versión publicada, por ejemplo v0.000.00.018
+        description: Etiqueta de la versión, por ejemplo v0.000.00.020
         required: true
         type: string
       publish:
         description: Publicar el visor en GitHub Pages
         type: boolean
         default: false
+      commit:
+        description: SHA completo del commit revisado para crear un lanzamiento
+        type: string
+      checks_run:
+        description: ID de la ejecución aprobada de Engine checks para ese commit
+        type: string
+      qa:
+        description: Referencia a la revisión de Vésper valorada por Lumen
+        type: string
 
 permissions: {}
 
@@ -22,62 +31,140 @@ concurrency:
 
 jobs:
   prepare:
-    name: Preparar el visor
+    name: Verificar y empaquetar el visor
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
+      actions: read
+    outputs:
+      commit: ${{ steps.bundle.outputs.commit }}
     steps:
-      - name: Comprobar la versión publicada
+      - name: Resolver la versión y verificar las pruebas
+        id: source
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release }}
+          SOURCE_COMMIT: ${{ inputs.commit }}
+          CHECKS_RUN: ${{ inputs.checks_run }}
+          QA_EVIDENCE: ${{ inputs.qa }}
         run: |
+          set -euo pipefail
           if [[ ! "$RELEASE_TAG" =~ ^v[0-9]\.[0-9]{3}\.[0-9]{2}\.[0-9]{3}$ ]]; then
             echo '::error::Usa una etiqueta con el formato v0.000.00.000.'
             exit 1
           fi
-          published_tag=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" \
-            --jq 'select(.draft == false and .published_at != null) | .tag_name')
-          if [[ "$published_tag" != "$RELEASE_TAG" ]]; then
-            echo '::error::La etiqueta debe corresponder a una versión publicada.'
+          if [[ -z "$SOURCE_COMMIT" ]]; then
+            tag=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" \
+              --jq 'select(.draft == false and .published_at != null) | .tag_name')
+            test "$tag" = "$RELEASE_TAG"
+            printf 'ref=refs/tags/%s\n' "$tag" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ ! "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ || ! "$CHECKS_RUN" =~ ^[0-9]+$ || ! "$QA_EVIDENCE" =~ [^[:space:]] ]]; then
+            echo '::error::Indica el SHA completo, el ID de Engine checks y la valoración de QA.'
             exit 1
           fi
-      - name: Descargar el visor de la versión
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CHECKS_RUN" | jq -e --arg sha "$SOURCE_COMMIT" '
+            .head_sha == $sha and
+            .path == ".github/workflows/engine-checks.yml" and
+            (.head_branch == "main" or .head_branch == "arquitectura-014") and
+            (.event == "push" or .event == "workflow_dispatch") and
+            .status == "completed" and .conclusion == "success"
+          ' > /dev/null || {
+            echo '::error::Engine checks debe haber aprobado ese commit en una rama de integración.'
+            exit 1
+          }
+          printf 'ref=%s\n' "$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
+      - name: Descargar los archivos del visor
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: refs/tags/${{ inputs.release }}
+          ref: ${{ steps.source.outputs.ref }}
           sparse-checkout: dist
           persist-credentials: false
       - name: Validar los archivos estáticos
+        id: bundle
         env:
           RELEASE_TAG: ${{ inputs.release }}
+          CHECKS_RUN: ${{ inputs.checks_run }}
+          QA_EVIDENCE: ${{ inputs.qa }}
         run: |
+          set -euo pipefail
           for file in index.html app.js style.css assets/manifest.json assets/scene.json assets/shaders.json; do
-            if [[ ! -s "dist/$file" ]]; then
-              echo "::error::Falta dist/$file en la versión seleccionada."
-              exit 1
-            fi
+            test -s "dist/$file"
           done
-          if [[ -n "$(find dist -type l -print -quit)" ]]; then
-            echo '::error::GitHub Pages no admite enlaces simbólicos en el artefacto.'
+          test -z "$(find dist -type l -print -quit)"
+          if [[ -e dist/map-editor.js || -e dist/map-project.js ]] || grep -q 'data-map-editor' dist/index.html; then
+            echo '::error::El paquete contiene el editor privado.'
             exit 1
           fi
           if [[ "$(jq -r .viewer_version dist/assets/manifest.json)" != "${RELEASE_TAG#v}" ]]; then
-            echo '::error::La versión del visor difiere de la etiqueta de la publicación.'
+            echo '::error::La versión del visor difiere de la etiqueta.'
             exit 1
           fi
-          printf 'Versión del visor: `%s`\n\nCommit: `%s`\n' \
-            "$RELEASE_TAG" "$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
-      - name: Empaquetar el visor
+          sha=$(git rev-parse HEAD)
+          printf 'commit=%s\n' "$sha" >> "$GITHUB_OUTPUT"
+          printf 'Versión del visor %s\n\nCommit %s\n' "$RELEASE_TAG" "$sha" >> "$GITHUB_STEP_SUMMARY"
+          if [[ -n "$CHECKS_RUN" ]]; then
+            printf '\n[Engine checks](%s/%s/actions/runs/%s)\n\nRevisión de QA %s\n' \
+              "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$CHECKS_RUN" "$QA_EVIDENCE" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Empaquetar para Pages
         uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
         with:
           path: dist
 
-  deploy:
-    name: Publicar el visor
-    if: inputs.publish && github.ref == 'refs/heads/main'
+  release:
+    name: Crear el lanzamiento en GitHub
+    if: inputs.publish && inputs.commit != '' && github.ref == 'refs/heads/main'
     needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Publicar el lanzamiento del commit verificado
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release }}
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.commit }}
+          CHECKS_RUN: ${{ inputs.checks_run }}
+          QA_EVIDENCE: ${{ inputs.qa }}
+        run: |
+          set -euo pipefail
+          # An existing tag must resolve to the reviewed commit before GH can reuse it.
+          existing_tag=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$RELEASE_TAG" \
+            --jq ".[] | select(.ref == \"refs/tags/$RELEASE_TAG\") | .ref")
+          if [[ -n "$existing_tag" ]]; then
+            existing_commit=$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)
+            if [[ "$existing_commit" != "$SOURCE_COMMIT" ]]; then
+              echo '::error::La etiqueta ya pertenece a otro commit.'
+              exit 1
+            fi
+          fi
+          releases=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 \
+            --json tagName,isDraft,publishedAt)
+          if jq -e --arg tag "$RELEASE_TAG" 'any(.[]; .tagName == $tag and (.isDraft | not) and .publishedAt != null)' \
+            <<< "$releases" > /dev/null; then
+            test -n "$existing_tag"
+            exit 0
+          fi
+          notes=$(mktemp)
+          printf 'Versión de prueba de Pléiade %s.\n\n' "${RELEASE_TAG#v}" > "$notes"
+          printf 'Consulta los cambios en [CHANGELOG.md](%s/%s/blob/%s/CHANGELOG.md).\n\n' \
+            "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$SOURCE_COMMIT" >> "$notes"
+          printf '[Engine checks](%s/%s/actions/runs/%s)\n\nRevisión de QA %s\n' \
+            "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$CHECKS_RUN" "$QA_EVIDENCE" >> "$notes"
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --target "$SOURCE_COMMIT" \
+            --prerelease --title "Pléiade ${RELEASE_TAG#v}" --notes-file "$notes"
+
+  deploy:
+    name: Publicar el visor en GitHub Pages
+    if: >-
+      !cancelled() && inputs.publish && github.ref == 'refs/heads/main' &&
+      needs.prepare.result == 'success' &&
+      (needs.release.result == 'success' || (inputs.commit == '' && needs.release.result == 'skipped'))
+    needs: [prepare, release]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
