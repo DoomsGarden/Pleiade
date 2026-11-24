@@ -1,0 +1,2 @@
+e10880adacf654dd578e9745fda56e20b4c039a0ea179c1ff055bb83eb8d41c8  Pleiade-0.000.00.024.apk
+be0bdfb5c45b64df95a10c34898bd911d6a8758cb2ad6d7fa10f748ff9249a04  Pleiade-0.000.00.024-Windows-x64-Setup.exe
