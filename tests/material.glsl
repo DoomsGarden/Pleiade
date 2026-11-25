@@ -260,23 +260,26 @@ float shoreShallow(float x){
 }
 float swellPhase(vec2 q,float time){
  // Raising the spatial frequency in shallow water slows the advancing crest.
- return 1.48*(q.x+4.0*shoreShallow(q.x))+.19*q.y+.54*sin(q.y*.36)-1.86*time;
+ return 1.10*(q.x+3.2*shoreShallow(q.x))+.115*q.y+.30*sin(q.y*.25)-1.48*time;
 }
 vec3 lakeWave(vec2 p,float time,float strength,bool curved){
+ if(strength==0.0)return vec3(0.0);
  vec2 q=shoreCoordinates(p,curved);
  float shallow=shoreShallow(q.x), delta=.44*shallow*(1.0-shallow);
  float phase=swellPhase(q,time);
- float secondary=2.82*(q.x+1.8*shallow)-.51*q.y-2.91*time+.77;
- float capillary=5.3*q.x+.98*q.y-3.75*time;
- float group=q.y*.48+q.x*.29-time*.39;
- float envelope=.83+.17*cos(group);
- float base=.045+.025*shallow;
+ float secondary=2.04*(q.x+1.3*shallow)-.36*q.y-2.55*time+.77;
+ float ripple=3.58*q.x+.74*q.y-3.75*time;
+ float group=q.y*.25+q.x*.19-time*.32;
+ float envelope=.88+.12*cos(group);
+ float base=.037+.016*shallow;
  float amplitude=base*envelope;
- float height=amplitude*sin(phase)+.017*sin(secondary)+.0035*sin(capillary);
- float dx=(.025*delta*envelope-base*.0493*sin(group))*sin(phase)+amplitude*1.48*(1.0+4.0*delta)*cos(phase)
-          +.017*2.82*(1.0+1.8*delta)*cos(secondary)+.01855*cos(capillary);
- float dz=amplitude*(.19+.1944*cos(q.y*.36))*cos(phase)-base*.0816*sin(group)*sin(phase)
-          -.00867*cos(secondary)+.00343*cos(capillary);
+ // Dominant long crests carry the displacement. Shorter waves add detail
+ // without folding the reflection into similarly strong intersecting cells.
+ float height=amplitude*sin(phase)+.008*sin(secondary)+.0017*sin(ripple);
+ float dx=(.016*delta*envelope-base*.0228*sin(group))*sin(phase)+amplitude*1.10*(1.0+3.2*delta)*cos(phase)
+          +.008*2.04*(1.0+1.3*delta)*cos(secondary)+.006086*cos(ripple);
+ float dz=amplitude*(.115+.075*cos(q.y*.25))*cos(phase)-base*.030*sin(group)*sin(phase)
+          -.00288*cos(secondary)+.001258*cos(ripple);
  return strength*vec3(height,dx,dz-shoreBankSlope(p.y,curved)*dx);
 }
 float recentShoreWater(vec2 p,float time,float strength,bool curved){
@@ -293,18 +296,34 @@ vec3 atmosphereFog(vec3 d){float h=max(d.y,0.0);return mix(mix(vec3(.006,.009,.0
 float channelCenter(float z){
  return -3.3+3.1*sin(z*.056)+1.3*sin(z*.133+.9);
 }
+float plungePool(float z){
+ float downstream=-z-2.5;
+ return smoothstep(0.0,3.8,downstream)*(1.0-smoothstep(4.0,13.5,downstream));
+}
+float channelWaterExtent(float z,int mode){
+ return 4.52+(mode==2?2.4*plungePool(z):0.0);
+}
 float waterLevel(float z,int mode){
- return mode==0?0.0:.44+z*.010+(mode==2?3.65*smoothstep(-2.5,1.7,z):0.0);
+ return mode==0?0.0:.44+z*.010+(mode==2?3.65*smoothstep(-2.5,.85,z):0.0);
 }
 uniform int uShoreWaterMode;
 float shoreSnowExposure(vec3 position){
  if(uShoreWaterMode<0)return 1.0;
  bool lake=uShoreWaterMode==0;
  // These edges match the water mesh in dist/watershed.js.
- if(lake?shoreCoordinates(position.xz,true).x>3.5:abs(position.x-channelCenter(position.z))>4.52)return 1.0;
+ if(lake?shoreCoordinates(position.xz,true).x>3.5:abs(position.x-channelCenter(position.z))>channelWaterExtent(position.z,uShoreWaterMode))return 1.0;
  // Snow buildup follows the wave envelope rather than appearing between crests.
  float crest=uWaveStrength*(lake?.091:.043);
  return smoothstep(crest,crest+.12,position.y-waterLevel(position.z,uShoreWaterMode));
+}
+float channelWetness(vec3 position){
+ float pool=uShoreWaterMode==2?plungePool(position.z):0.0;
+ float across=abs(position.x-channelCenter(position.z));
+ float edge=channelWaterExtent(position.z,uShoreWaterMode);
+ float edgeWet=1.0-smoothstep(edge-.18,edge+.14+.60*pool,across);
+ float above=position.y-waterLevel(position.z,uShoreWaterMode);
+ float spray=1.0-smoothstep(.035,.24+.42*pool,above);
+ return edgeWet*spray;
 }
 
 void main(){
@@ -469,6 +488,19 @@ void main(){
     level=recentShoreWater(worldPosition.xz,uWetTime,uWaveStrength,true);
   float wet=1.0-smoothstep(.022,.22,worldPosition.y-level);
   base*=mix(1.0,.48,wet);rough=mix(rough,.20,wet);
+ }
+ if(uShoreWaterMode>0){
+  bool bank=surf.z>3.5&&surf.z<4.5;
+  bool rock=(surf.z>8.5&&surf.z<9.5)||abs(layer-11.0)<.5;
+  if(bank||rock){
+   float wet=channelWetness(worldPosition);
+   if(wet>0.0){
+    float texture=mix(.72,1.0,noise2(worldPosition.xz*1.8+worldPosition.y*.76));
+    wet*=texture;
+    base*=mix(1.0,rock?.63:.53,wet);
+    rough=mix(rough,rock?.30:.43,wet);
+   }
+  }
  }
  bool ground=(surf.z>3.5&&surf.z<4.5)||surf.z>=39.5;
  if(ground){

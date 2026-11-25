@@ -7,8 +7,8 @@ float channelSlope(float z){
 }
 float waterSlope(float z){
  if(uWaterMode==0)return 0.0;
- float s=clamp((z+2.5)/4.2,0.0,1.0);
- return .010+(uWaterMode==2?3.65*6.0*s*(1.0-s)/4.2:0.0);
+ float s=clamp((z+2.5)/3.35,0.0,1.0);
+ return .010+(uWaterMode==2?3.65*6.0*s*(1.0-s)/3.35:0.0);
 }
 vec3 waveField(vec2 p){
  if(uWaterMode==0)return lakeWave(p,uWaterTime,uWaveStrength,true);

@@ -1,3 +1,11 @@
+# Versión de prueba 0.000.00.027 — río, cascada y oleaje del lago
+
+- Las rocas marrones del cauce descansan en el fondo triangulado y asoman por encima del agua.
+- El agua cae en una poza más ancha y profunda que se estrecha aguas abajo. El flujo arrastra vetas por la caída y espuma desde el punto de impacto. El agua oscurece las orillas y las rocas próximas y modifica su rugosidad.
+- El oleaje del lago usa crestas más largas, menor desplazamiento vertical y menos espuma persistente. La opción de agua en calma conserva la superficie plana.
+
+---
+
 # Versión de prueba 0.000.00.026 — orilla continua del lago
 
 - El relieve de las colinas se incorpora gradualmente detrás de la playa. La orilla visible sigue el encuentro de las olas con el terreno y el borde de la malla queda cubierto por suelo seco.

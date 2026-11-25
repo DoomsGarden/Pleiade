@@ -12,9 +12,18 @@ export function lakeBank(z){
     return 1.60*Math.sin(z*.091)+.68*Math.sin(z*.19);
 }
 
+export function plungePool(z){
+    const downstream=-z-2.5;
+    return smooth(downstream/3.8)*(1-smooth((downstream-4.0)/9.5));
+}
+
+export function channelWaterExtent(z,mode){
+    return 4.52+(mode==='falls'?2.4*plungePool(z):0);
+}
+
 export function waterBase(mode,z){
     if(mode==='lake')return 0;
-    return .44+z*.010+(mode==='falls'?3.65*smooth((z+2.5)/4.2):0);
+    return .44+z*.010+(mode==='falls'?3.65*smooth((z+2.5)/3.35):0);
 }
 
 function bedProfile(mode,seed){
@@ -28,8 +37,10 @@ function bedProfile(mode,seed){
             // below the wave crests at the end of the water mesh.
             return .075*inland + smooth(inland/30)*hills + rough*.64;
         }
-        const offset=Math.abs(x-channel(z));
-        const inner=-1.03+.12*Math.sin(z*.22),bank=.66+hills*.38;
+        const pool=mode==='falls'?plungePool(z):0;
+        const offset=Math.abs(x-channel(z))*4.52/channelWaterExtent(z,mode);
+        const scour=1.55*pool*(1-smooth(offset/3.5));
+        const inner=-1.03+.12*Math.sin(z*.22)-scour,bank=.66+hills*.38;
         return waterBase(mode,z)+mix(inner,bank,smooth((offset-2.05)/2.36))+
             .73*smooth((offset-4.6)/8)*hills+rough*.48;
     };
@@ -81,11 +92,27 @@ export function createWatershed(mode,seed){
             const bank=lakeBank(z);
             x=u<.59?mix(-extent,bank-7.0,u/.59):mix(bank-7.0,bank+3.5,(u-.59)/.41);
         }else{
-            x=channel(z)+(2*u-1)*4.52;
+            x=channel(z)+(2*u-1)*channelWaterExtent(z,mode);
         }
         return [x,waterBase(mode,z),z,0,1,0,u,v];
     });
     return {land,water,height,area:extent*2};
+}
+
+// Choose a shallow footing before placing an exposed boulder. Its base is
+// embedded in the actual triangulated bed, so it never hovers over the channel.
+export function channelRockFooting(mode,height,z,side,minY,maxY){
+    const center=channel(z);
+    const embed=.035;
+    const target=waterBase(mode,z)+.12-(maxY-minY)+embed;
+    let deep=0,shallow=channelWaterExtent(z,mode);
+    for(let i=0;i<10;i++){
+        const mid=(deep+shallow)*.5;
+        if(height(center+side*mid,z)<target)deep=mid;
+        else shallow=mid;
+    }
+    const x=center+side*shallow;
+    return [x,height(x,z)-minY-embed,z];
 }
 
 // Periodic transport of floaters, measured in world metres. The chute accelerates them.

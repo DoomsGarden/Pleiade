@@ -2,7 +2,7 @@
 import fs from 'node:fs/promises';import assert from 'node:assert/strict';
 import {copyPrototype, createBiome, terrainPieces} from '../dist/biomes.js';
 import {climateAt} from '../dist/climate.js';
-import {channel,lakeBank,waterBase,createWatershed,driftSamples} from '../dist/watershed.js';
+import {channel,lakeBank,waterBase,channelWaterExtent,createWatershed,driftSamples} from '../dist/watershed.js';
 import {plantContact} from '../dist/plant_contact.js';
 import {fly} from '../dist/flight.js';
 import {cloudTransmission} from '../dist/celestial.js';
@@ -172,6 +172,12 @@ for(let i=0;i<forest.length;i++){
 }
 console.log('PASS: shore branches stay visible on both detail tiers and forest trees retain their wooden supports.');
 
+const rockBuffer=await fs.readFile(new URL(`../dist/assets/mesh-${geometry.meshIds.rock}.vbo`,import.meta.url));
+let rockMinY=Infinity,rockMaxY=-Infinity;
+for(let i=4;i<rockBuffer.length;i+=geometry.vertexStride){
+ const y=rockBuffer.readFloatLE(i);
+ rockMinY=Math.min(rockMinY,y);rockMaxY=Math.max(rockMaxY,y);
+}
 for(const [mode,index] of ['lake','river','falls'].entries()){
  const basin=createWatershed(index,12345);
  assert.equal(basin.area,104);
@@ -185,8 +191,28 @@ for(const [mode,index] of ['lake','river','falls'].entries()){
  if(index!=='lake'){
   assert(b[2]<a[2]);assert(b[1]<a[1]);
   assert(Math.abs(b[0]-channel(b[2]))<2.1);
+  const bed=createWatershed(index,pleiade.world.seed);
+  for(const z of [5.8,-9]){
+   const groups=drawAt([channel(z),waterBase(index,z),z],9);
+   let rock;
+   for(const {data} of groups)for(let i=0;i<data.length;i+=24){
+    if(data[i+22]===9&&Math.abs(data[i+14]-z)<.0001)rock=data.subarray(i,i+24);
+   }
+   assert(rock,'the exposed rock is rendered in the channel');
+   const [px,py,pz]=rock.slice(12,15);
+   assert(Math.abs(py+rock[5]*rockMinY-bed.height(px,pz)+.035)<.001,'the rock base is embedded in the channel bed');
+   assert(py+rock[5]*rockMaxY>waterBase(index,pz)+.08,'the grounded rock still breaks the water surface');
+  }
  }
 }
+// A broad depression below the drop merges into the downstream river.
+const waterfall=createWatershed('falls',12345),river=createWatershed('river',12345);
+const poolZ=-6.5,poolX=channel(poolZ),poolExtent=channelWaterExtent(poolZ,'falls');
+assert(poolExtent>channelWaterExtent(poolZ,'river')+2);
+assert(waterfall.height(poolX,poolZ)<river.height(poolX,poolZ)-1.4);
+assert(waterfall.height(poolX+4.7,poolZ)<waterBase('falls',poolZ));
+assert(waterfall.height(poolX+poolExtent,poolZ)>waterBase('falls',poolZ)+.08);
+assert.equal(channelWaterExtent(-20,'falls'),channelWaterExtent(-20,'river'));
 // The mesh must end under dry ground even at the maximum wave setting.
 // Sample the actual mesh edge between rows as well as the beach beyond it.
 for(const seed of [0,17,182,800,1300,12345,99999]){

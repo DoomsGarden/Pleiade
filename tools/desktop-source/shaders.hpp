@@ -17,23 +17,26 @@ float shoreShallow(float x){
 }
 float swellPhase(vec2 q,float time){
  // Raising the spatial frequency in shallow water slows the advancing crest.
- return 1.48*(q.x+4.0*shoreShallow(q.x))+.19*q.y+.54*sin(q.y*.36)-1.86*time;
+ return 1.10*(q.x+3.2*shoreShallow(q.x))+.115*q.y+.30*sin(q.y*.25)-1.48*time;
 }
 vec3 lakeWave(vec2 p,float time,float strength,bool curved){
+ if(strength==0.0)return vec3(0.0);
  vec2 q=shoreCoordinates(p,curved);
  float shallow=shoreShallow(q.x), delta=.44*shallow*(1.0-shallow);
  float phase=swellPhase(q,time);
- float secondary=2.82*(q.x+1.8*shallow)-.51*q.y-2.91*time+.77;
- float capillary=5.3*q.x+.98*q.y-3.75*time;
- float group=q.y*.48+q.x*.29-time*.39;
- float envelope=.83+.17*cos(group);
- float base=.045+.025*shallow;
+ float secondary=2.04*(q.x+1.3*shallow)-.36*q.y-2.55*time+.77;
+ float ripple=3.58*q.x+.74*q.y-3.75*time;
+ float group=q.y*.25+q.x*.19-time*.32;
+ float envelope=.88+.12*cos(group);
+ float base=.037+.016*shallow;
  float amplitude=base*envelope;
- float height=amplitude*sin(phase)+.017*sin(secondary)+.0035*sin(capillary);
- float dx=(.025*delta*envelope-base*.0493*sin(group))*sin(phase)+amplitude*1.48*(1.0+4.0*delta)*cos(phase)
-          +.017*2.82*(1.0+1.8*delta)*cos(secondary)+.01855*cos(capillary);
- float dz=amplitude*(.19+.1944*cos(q.y*.36))*cos(phase)-base*.0816*sin(group)*sin(phase)
-          -.00867*cos(secondary)+.00343*cos(capillary);
+ // Dominant long crests carry the displacement. Shorter waves add detail
+ // without folding the reflection into similarly strong intersecting cells.
+ float height=amplitude*sin(phase)+.008*sin(secondary)+.0017*sin(ripple);
+ float dx=(.016*delta*envelope-base*.0228*sin(group))*sin(phase)+amplitude*1.10*(1.0+3.2*delta)*cos(phase)
+          +.008*2.04*(1.0+1.3*delta)*cos(secondary)+.006086*cos(ripple);
+ float dz=amplitude*(.115+.075*cos(q.y*.25))*cos(phase)-base*.030*sin(group)*sin(phase)
+          -.00288*cos(secondary)+.001258*cos(ripple);
  return strength*vec3(height,dx,dz-shoreBankSlope(p.y,curved)*dx);
 }
 float recentShoreWater(vec2 p,float time,float strength,bool curved){
@@ -71,18 +74,18 @@ float lakeFoam(vec2 p,float time,float strength,bool curved,float footprint){
  vec2 q=shoreCoordinates(p,curved);
  // Foam is generated near the depth at which this swell overturns. Evaluate
  // the crest at its generation point and time, then carry the patch inland.
- float line=-.35-1.55*strength+.60*(foamNoise(vec2(q.y*.84,4.2))-.5);
+ float line=-.38-1.33*strength+.44*(foamNoise(vec2(q.y*.74,4.2))-.5);
  float runup=q.x-line;
- float age=max(0.0,runup/.72);
- float arrival=swellPhase(vec2(line,q.y-age*.22),time-age);
+ float age=max(0.0,runup/.64);
+ float arrival=swellPhase(vec2(line,q.y-age*.16),time-age);
  float crest=sin(arrival);
- float patchiness=foamNoise(vec2(q.y*.57-arrival*.14, time*.24));
- float breaking=smoothstep(.42,.90,crest)*mix(.49,1.18,patchiness);
- float lingering=.19*smoothstep(-.82,.52,sin(arrival-.77));
- float drift=exp(-age*.58)*smoothstep(-.52,.12,runup)*(1.0-smoothstep(1.8,3.1,age));
- float density=drift*(breaking+lingering)*smoothstep(.025,.67,strength);
+ float patchiness=foamNoise(vec2(q.y*.61-arrival*.10,(time-age)*.22));
+ float breaking=smoothstep(.55,.95,crest)*mix(.53,.96,patchiness);
+ float lingering=.09*smoothstep(-.45,.66,sin(arrival-.60));
+ float drift=exp(-age*.68)*smoothstep(-.38,.08,runup)*(1.0-smoothstep(1.25,2.15,age));
+ float density=drift*(breaking+lingering)*smoothstep(.06,.78,strength);
  if(density<.012)return 0.0;
- return .78*foamLace(vec2(q.x-time*.71,q.y-time*.11),density,footprint);
+ return .64*foamLace(vec2(q.x-time*.64,q.y-time*.16),density,footprint);
 }
 vec3 applyWaterFoam(vec3 water,float foam,vec3 light,float ambient,float sun){
  // Foam is a diffuse mixture of air and water. It hides the sharp surface

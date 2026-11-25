@@ -56,23 +56,26 @@ float shoreShallow(float x){
 }
 float swellPhase(vec2 q,float time){
  // Raising the spatial frequency in shallow water slows the advancing crest.
- return 1.48*(q.x+4.0*shoreShallow(q.x))+.19*q.y+.54*sin(q.y*.36)-1.86*time;
+ return 1.10*(q.x+3.2*shoreShallow(q.x))+.115*q.y+.30*sin(q.y*.25)-1.48*time;
 }
 vec3 lakeWave(vec2 p,float time,float strength,bool curved){
+ if(strength==0.0)return vec3(0.0);
  vec2 q=shoreCoordinates(p,curved);
  float shallow=shoreShallow(q.x), delta=.44*shallow*(1.0-shallow);
  float phase=swellPhase(q,time);
- float secondary=2.82*(q.x+1.8*shallow)-.51*q.y-2.91*time+.77;
- float capillary=5.3*q.x+.98*q.y-3.75*time;
- float group=q.y*.48+q.x*.29-time*.39;
- float envelope=.83+.17*cos(group);
- float base=.045+.025*shallow;
+ float secondary=2.04*(q.x+1.3*shallow)-.36*q.y-2.55*time+.77;
+ float ripple=3.58*q.x+.74*q.y-3.75*time;
+ float group=q.y*.25+q.x*.19-time*.32;
+ float envelope=.88+.12*cos(group);
+ float base=.037+.016*shallow;
  float amplitude=base*envelope;
- float height=amplitude*sin(phase)+.017*sin(secondary)+.0035*sin(capillary);
- float dx=(.025*delta*envelope-base*.0493*sin(group))*sin(phase)+amplitude*1.48*(1.0+4.0*delta)*cos(phase)
-          +.017*2.82*(1.0+1.8*delta)*cos(secondary)+.01855*cos(capillary);
- float dz=amplitude*(.19+.1944*cos(q.y*.36))*cos(phase)-base*.0816*sin(group)*sin(phase)
-          -.00867*cos(secondary)+.00343*cos(capillary);
+ // Dominant long crests carry the displacement. Shorter waves add detail
+ // without folding the reflection into similarly strong intersecting cells.
+ float height=amplitude*sin(phase)+.008*sin(secondary)+.0017*sin(ripple);
+ float dx=(.016*delta*envelope-base*.0228*sin(group))*sin(phase)+amplitude*1.10*(1.0+3.2*delta)*cos(phase)
+          +.008*2.04*(1.0+1.3*delta)*cos(secondary)+.006086*cos(ripple);
+ float dz=amplitude*(.115+.075*cos(q.y*.25))*cos(phase)-base*.030*sin(group)*sin(phase)
+          -.00288*cos(secondary)+.001258*cos(ripple);
  return strength*vec3(height,dx,dz-shoreBankSlope(p.y,curved)*dx);
 }
 float recentShoreWater(vec2 p,float time,float strength,bool curved){
@@ -110,18 +113,18 @@ float lakeFoam(vec2 p,float time,float strength,bool curved,float footprint){
  vec2 q=shoreCoordinates(p,curved);
  // Foam is generated near the depth at which this swell overturns. Evaluate
  // the crest at its generation point and time, then carry the patch inland.
- float line=-.35-1.55*strength+.60*(foamNoise(vec2(q.y*.84,4.2))-.5);
+ float line=-.38-1.33*strength+.44*(foamNoise(vec2(q.y*.74,4.2))-.5);
  float runup=q.x-line;
- float age=max(0.0,runup/.72);
- float arrival=swellPhase(vec2(line,q.y-age*.22),time-age);
+ float age=max(0.0,runup/.64);
+ float arrival=swellPhase(vec2(line,q.y-age*.16),time-age);
  float crest=sin(arrival);
- float patchiness=foamNoise(vec2(q.y*.57-arrival*.14, time*.24));
- float breaking=smoothstep(.42,.90,crest)*mix(.49,1.18,patchiness);
- float lingering=.19*smoothstep(-.82,.52,sin(arrival-.77));
- float drift=exp(-age*.58)*smoothstep(-.52,.12,runup)*(1.0-smoothstep(1.8,3.1,age));
- float density=drift*(breaking+lingering)*smoothstep(.025,.67,strength);
+ float patchiness=foamNoise(vec2(q.y*.61-arrival*.10,(time-age)*.22));
+ float breaking=smoothstep(.55,.95,crest)*mix(.53,.96,patchiness);
+ float lingering=.09*smoothstep(-.45,.66,sin(arrival-.60));
+ float drift=exp(-age*.68)*smoothstep(-.38,.08,runup)*(1.0-smoothstep(1.25,2.15,age));
+ float density=drift*(breaking+lingering)*smoothstep(.06,.78,strength);
  if(density<.012)return 0.0;
- return .78*foamLace(vec2(q.x-time*.71,q.y-time*.11),density,footprint);
+ return .64*foamLace(vec2(q.x-time*.64,q.y-time*.16),density,footprint);
 }
 vec3 applyWaterFoam(vec3 water,float foam,vec3 light,float ambient,float sun){
  // Foam is a diffuse mixture of air and water. It hides the sharp surface
@@ -133,8 +136,15 @@ vec3 applyWaterFoam(vec3 water,float foam,vec3 light,float ambient,float sun){
 float channelCenter(float z){
  return -3.3+3.1*sin(z*.056)+1.3*sin(z*.133+.9);
 }
+float plungePool(float z){
+ float downstream=-z-2.5;
+ return smoothstep(0.0,3.8,downstream)*(1.0-smoothstep(4.0,13.5,downstream));
+}
+float channelWaterExtent(float z,int mode){
+ return 4.52+(mode==2?2.4*plungePool(z):0.0);
+}
 float waterLevel(float z,int mode){
- return mode==0?0.0:.44+z*.010+(mode==2?3.65*smoothstep(-2.5,1.7,z):0.0);
+ return mode==0?0.0:.44+z*.010+(mode==2?3.65*smoothstep(-2.5,.85,z):0.0);
 }
 
 
@@ -145,8 +155,8 @@ float channelSlope(float z){
 }
 float waterSlope(float z){
  if(uWaterMode==0)return 0.0;
- float s=clamp((z+2.5)/4.2,0.0,1.0);
- return .010+(uWaterMode==2?3.65*6.0*s*(1.0-s)/4.2:0.0);
+ float s=clamp((z+2.5)/3.35,0.0,1.0);
+ return .010+(uWaterMode==2?3.65*6.0*s*(1.0-s)/3.35:0.0);
 }
 vec3 waveField(vec2 p){
  if(uWaterMode==0)return lakeWave(p,uWaterTime,uWaveStrength,true);
@@ -404,25 +414,25 @@ float obstacleFoam(vec2 at,vec2 delta,float radius,float time,float strength,flo
  vec2 moving=vec2(side,downstream-uFlowTime*(uWaterMode==0?.64:1.41));
  return .83*foamLace(moving,density,footprint);
 }
-float channelFoam(vec2 p,float slope,float footprint){
+float channelFoam(vec2 p,float cascade,float pool,float footprint){
  float side=p.x-channelCenter(p.y),stream=channelTravel(p.y)+uFlowTime;
- float cascade=smoothstep(.20,.83,slope);
- vec2 advected=vec2(side,stream);
  float white=0.0;
  if(cascade>.01){
-  float sheet=foamNoise(vec2(side*4.6,stream*1.65)+2.9);
-  white=.69*cascade*foamLace(advected*vec2(1.06,.86),cascade*(.40+.53*sheet),footprint);
+  // A thin veil carries shorter streaks with irregular breaks down the sheet.
+  float bend=(foamNoise(vec2(side*.86,stream*2.6)+4.2)-.5)*.34;
+  vec2 streaks=vec2(side*1.65+bend,stream*1.22);
+  float gaps=foamNoise(vec2(side*2.75,stream*2.82)+2.9);
+  white=cascade*(.025+.20*foamLace(streaks,cascade*mix(.29,.66,gaps),footprint));
  }
  if(uWaterMode==2){
-  // The plume begins at the foot and expands downstream; it is fed
-  // continuously by new foam but its texture travels and breaks apart.
-  float distance=-2.30-p.y;
-  float width=1.55+clamp(distance,0.0,4.0)*.24;
-  float plume=exp(-max(0.0,distance)*.51)*smoothstep(-.84,.32,distance);
-  plume*=1.0-smoothstep(width*.54,width*1.75,abs(side));
+  // Start with a narrow strike at the foot, then widen through the pool.
+  float downstream=max(0.0,-2.5-p.y);
+  float strike=smoothstep(0.0,.48,downstream)*exp(-.48*downstream);
+  float width=1.25+2.55*pool;
+  float plume=(.76*strike+.41*pool)*(1.0-smoothstep(width*.32,width,abs(side)));
   if(plume>.014){
-   float entrainment=.66+.34*foamNoise(advected*vec2(1.6,1.72)+9.4);
-   white=max(white,.92*foamLace(advected,plume*entrainment,footprint));
+   float breakup=foamNoise(vec2(side*1.6,stream*1.72)+9.4);
+   white=max(white,.83*foamLace(vec2(side*1.15,stream*.93),plume*mix(.48,1.0,breakup),footprint));
   }
  }
  for(int i=0;i<10;i++){
@@ -442,6 +452,12 @@ bool waterSurface(vec2 screen,out vec3 result,out float coverage,out float dista
  vec3 point=fromView(viewPoint);
  distance=length(viewPoint);
  float slope=waterSlope(point.z);
+ float cascade=uWaterMode==2?smoothstep(.20,.83,slope):0.0;
+ float pool=uWaterMode==2?plungePool(point.z):0.0;
+ // The falling sheet is agitated through the shoulders, where its slope
+ // approaches zero again at the lip and at the foot.
+ float fallBand=uWaterMode==2?smoothstep(-4.0,-2.5,point.z)*(1.0-smoothstep(.85,2.1,point.z)):0.0;
+ float agitation=smoothstep(.06,.90,max(fallBand,pool));
  vec3 wave=waveField(point.xz);
  float footprint=distance*uSkyPixelAngle;
  float foam=0.0;
@@ -460,6 +476,11 @@ bool waterSurface(vec2 screen,out vec3 result,out float coverage,out float dista
   foam=max(foam,obstacleFoam(obstacle.xy,delta,obstacle.z,uWaterTime,energy,footprint));
  }
  // High frequency slopes fade with distance; the broad reflection follows the wave.
+ if(pool>.01){
+  float side=point.x-channelCenter(point.z),stream=channelTravel(point.z)+uFlowTime;
+  vec2 r=vec2(side*2.7+stream*4.3,side*3.9-stream*5.2+.6);
+  wave.yz+=pool*vec2(.050*sin(r.x),.074*cos(r.y));
+ }
  float rippleFilter=mix(1.0,.30,smoothstep(.05,.26,footprint));
  vec3 n=normalize(vec3(-wave.y*rippleFilter,1.0,-slope-wave.z*rippleFilter));
  vec3 v=normalize(uCameraEye-point);
@@ -494,17 +515,23 @@ bool waterSurface(vec2 screen,out vec3 result,out float coverage,out float dista
  if(!below&&uWaterSSR!=0&&waterReflection(point+n*.06,reflected,hitUV,confidence)){
   environment=mix(environment,texture(uDirect,hitUV).rgb+texture(uAmbient,hitUV).rgb,confidence);
  }
+ if(agitation>0.0){
+  // In the aerated flow the reflected sun disk spreads across many ripples.
+  float peak=max(environment.r,max(environment.g,environment.b));
+  environment*=mix(1.0,.86/max(.86,peak),agitation);
+ }
  float fresnel=waterFresnel(dot(n,v));
  vec3 h=normalize(v+uSkyLightDirection);
  float nt=max(dot(n,h),0.0);
  float sharpness=mix(425.0,105.0,max(uWaveStrength,smoothstep(.04,.23,footprint)))*mix(1.0,.58,smoothstep(.1,.9,slope));
  float glint=pow(nt,sharpness)*.61+pow(nt,max(35.0,sharpness*.22))*.071;
+ if(agitation>0.0)glint=mix(glint,.13*pow(nt,max(22.0,sharpness*.16)),agitation);
  coverage=smoothstep(.003,.070,rayPath);
  if(below){
   result=mix(vec3(.013,.050,.058),environment,.45)*mix(.13,.65,uDaylight);
  }else{
   foam=max(foam,uWaterMode==0?lakeFoam(point.xz,uWaterTime,uWaveStrength,true,footprint)
-                            :channelFoam(point.xz,slope,footprint));
+                            :channelFoam(point.xz,cascade,pool,footprint));
   coverage=max(coverage,foam*smoothstep(.004,.052,rayPath));
   vec3 water=mix(body,environment,fresnel)+uLightColor*glint;
   result=applyWaterFoam(water,foam,uLightColor,uSkyAmbient,max(dot(n,uSkyLightDirection),0.0));

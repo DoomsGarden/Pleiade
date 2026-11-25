@@ -1,11 +1,11 @@
 import {generateWorld,validateWorld,celestialFrame,starAtlas,cloudTransmission,angularRadiusBounds} from './celestial.js';
 import {biomes,createBiome,copyPrototype} from './biomes.js?v=0.000.00.022';
-import {createWatershed,waterModes,driftSamples,channel,lakeBank,waterBase} from './watershed.js?v=0.000.00.026';
+import {createWatershed,waterModes,driftSamples,channel,lakeBank,waterBase,channelWaterExtent,channelRockFooting} from './watershed.js?v=0.000.00.027';
 import {climateAt,seasons,weatherModes} from './climate.js';
 import {moveDetached,plantContact} from './plant_contact.js';
 import {ceiling,flightLimits,fly} from './flight.js';
 const $=id=>document.getElementById(id), canvas=$('view');
-const VERSION='0.000.00.026';
+const VERSION='0.000.00.027';
 const params=new URLSearchParams(location.search);
 const state={ready:false,scene:'shore',biome:'forest',waterMode:'lake',underwater:false,buildingForm:'cabin',season:'summer',weather:'clear',quality:window.PleiadeAndroid?'eco':'balanced',materials:true,shadows:true,shadowSoft:true,water:true,ssr:false,contact:false,animation:true,waveStrength:.35,time:0,waveTime:0,frames:0,errors:[],fps:0,hdr:false,paused:false};
 window.pleiade={state};
@@ -70,7 +70,14 @@ function makeMesh(item, vertices, indices, stride) {
 }
 async function loadMesh(item){
  const [vertices,indices]=await Promise.all([fetchData(`assets/mesh-${item.id}.vbo`,'buffer'),fetchData(`assets/mesh-${item.id}.ibo`,'buffer')]);
- makeMesh(item,vertices,indices,sceneData.vertexStride??24);
+ const stride=sceneData.vertexStride??24;
+ makeMesh(item,vertices,indices,stride);
+ if(item.id===sceneData.meshIds.rock){
+  const data=new Float32Array(vertices);
+  let minY=Infinity,maxY=-Infinity;
+  for(let i=1;i<data.length;i+=stride/4){minY=Math.min(minY,data[i]);maxY=Math.max(maxY,data[i]);}
+  meshes.get(item.id).heights=[minY,maxY];
+ }
  if(item.id===0)makeMesh({...item,id:'glass'},vertices,indices,sceneData.vertexStride??24);
 }
 function replaceMesh(id,data){
@@ -106,7 +113,7 @@ function collectWaterContacts(mode,objects,rockIds){
   const level=waterBase(mode,m[14]);
   const reach=Math.max(Math.hypot(m[0],m[2]),Math.hypot(m[8],m[10]),.09)*.5;
   if(Math.abs(m[13]-level)>vertical+.045||reach<.08)continue;
-  if(mode!=='lake'&&Math.abs(m[12]-channel(m[14]))>4.45+reach)continue;
+  if(mode!=='lake'&&Math.abs(m[12]-channel(m[14]))>channelWaterExtent(m[14],mode)+reach)continue;
   if(contacts.some(([x,z])=>Math.hypot(x-m[12],z-m[14])<.65))continue;
   contacts.push([m[12],m[14],reach]);
  }
@@ -134,7 +141,8 @@ function regenerateShore(){
  }
  const bank=[[-19,1],[-27,-1],[-32,1],[-38,-1],[13,1],[21,1],[29,1],[35,-1]];
  for(const [i,[z,side]] of bank.entries()){
-  const x=state.waterMode==='lake'?6+2.6*Math.sin(i*2.4):channel(z)+side*(6.1+1.9*Math.sin(i*2.2));
+  const x=state.waterMode==='lake'?6+2.6*Math.sin(i*2.4):
+   channel(z)+side*(channelWaterExtent(z,state.waterMode)+1.58+1.9*Math.sin(i*2.2));
   const kind=['birch2','spruce2','pine2'][i%3];
   const size=4.6+2.4*Math.sin((i+1)*.55)**2;
   copyPrototype(shoreObjects,sceneData.plants[kind],x,watershed.height(x,z)-.055,z,size,i*2.4,.88);
@@ -142,9 +150,11 @@ function regenerateShore(){
  // Two partly submerged rocks provide a visible reference for the current.
  if(state.waterMode!=='lake'){
   const rocks=sceneData.meshIds.rock;
-  for(const [z,lateral,size] of [[5.8,-1.7,.84],[-9.0,1.45,.60]]){
-   const x=channel(z)+lateral,y=waterBase(state.waterMode,z)-size*.05;
-   shoreObjects.push({mesh:rocks,instance:[size,0,0,0,0,size*.86,0,0,0,0,size*.91,0,x,y,z,1,.42,.43,.40,1,.86,0,9,0]});
+  for(const [z,side,size] of [[5.8,-1,.84],[-9.0,1,.60]]){
+   const sy=size*.86;
+   const [minY,maxY]=meshes.get(rocks).heights;
+   const [x,y]=channelRockFooting(state.waterMode,watershed.height,z,side,minY*sy,maxY*sy);
+   shoreObjects.push({mesh:rocks,instance:[size,0,0,0,0,sy,0,0,0,0,size*.91,0,x,y,z,1,.42,.43,.40,1,.86,0,9,0]});
   }
  }
  waterContacts=collectWaterContacts(state.waterMode,shoreObjects,new Set(sceneData.meshes.filter(m=>m.id===sceneData.meshIds.rock||m.name==='RockDetail').map(m=>m.id)));
@@ -343,7 +353,7 @@ function surfaceAt(x,z){
  if(state.scene==='biomes')return activeBiome.height(x,z);
  if(state.scene==='shore'){
   const ground=watershed.height(x,z);
-  const overWater=state.water&&(state.waterMode==='lake'?x<=lakeBank(z)+3.5:Math.abs(x-channel(z))<=4.52);
+  const overWater=state.water&&(state.waterMode==='lake'?x<=lakeBank(z)+3.5:Math.abs(x-channel(z))<=channelWaterExtent(z,state.waterMode));
   return overWater?Math.max(ground,waterBase(state.waterMode,z)):ground;
  }
  return 0;

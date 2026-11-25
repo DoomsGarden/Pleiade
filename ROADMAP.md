@@ -14,6 +14,12 @@ El objetivo visual es que luz, materiales, reflejos, movimiento y exposición se
 
 El cielo de cada mundo se genera por semilla y se puede exportar e importar. La estrella principal, el satélite y el catálogo estelar son ficticios. El agua y el vidrio comparten la radiancia direccional del cielo en el visor WebGL. La navegación espacial se construirá con coordenadas sectorizadas, representación relativa a cámara y niveles de detalle distintos para terreno, planeta, sistema estelar y galaxia. El alcance numérico ya se prueba a 2,5 millones de años luz. La generación y el vuelo a esas escalas requieren integrar esos niveles de representación.
 
+## Construcción y personajes
+
+- **Cruces sobre agua.** Probar una pasarela de madera de un solo vano en un tramo estable, alrededor de `z=24 m` aguas arriba de la cascada. La generación usa `channel(z)`, `waterBase(mode,z)` y la altura triangulada `createWatershed(mode,seed).height(x,z)` para orientar el cruce y asentar ambos estribos. Los accesos y el tablero necesitan margen sobre la cresta máxima más una cota de crecida configurable. Comprobar el paso continuo en ambas direcciones y la colisión de tablero y barandillas. Las rutas sobre y bajo el puente requieren que el controlador y la navegación representen superficies superpuestas.
+- **Estructuras y poblados.** Compartir emplazamiento, tablero y estribos entre variantes de arco romano de medio punto, gótico apuntado, madera y hormigón. Ampliar el catálogo con piezas compatibles de planta, muro, forjado, cubierta y hueco para poblados medievales, góticos y modernos. Validar la escala, los encuentros entre piezas, la lectura de los materiales PBR y la continuidad de colisiones a pie y en vista estratégica.
+- **Personajes modulares.** Introducir un primer personaje con malla, esqueleto y animación glTF 2.0, y comprobar que el mismo recurso funciona como jugador y NPC. Vincular ropa y armadura deformables al esqueleto y accesorios rígidos a los puntos de anclaje. Probar distintas capas y proporciones en marcha y reposo. Evaluar materiales PBR de piel, tejido, cuero y metal en primeros planos y en vista estratégica, con niveles de detalle por pieza.
+
 ## Revisión y numeración
 
 Cada ejecución elige una mejora comprobable, documenta la prueba y deja sus cambios en revisión. Vésper verifica funcionamiento, limpieza, bugs, rendimiento y cobertura. Lumen recibe sus hallazgos por parche para reproducirlos y valorar el resultado.

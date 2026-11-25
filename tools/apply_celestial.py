@@ -16,23 +16,46 @@ uniform float uSkyAmbient;
 uniform float uDaylight;
 vec3 atmosphereFog(vec3 d){float h=max(d.y,0.0);return mix(mix(vec3(.006,.009,.018),vec3(.0007,.0015,.004),sqrt(h)),mix(vec3(.38,.49,.60),vec3(.045,.18,.42),sqrt(h)),uDaylight);}
 """
- shore_snow="""uniform int uShoreWaterMode;
+ shore_material="""uniform int uShoreWaterMode;
 float shoreSnowExposure(vec3 position){
  if(uShoreWaterMode<0)return 1.0;
  bool lake=uShoreWaterMode==0;
  // These edges match the water mesh in dist/watershed.js.
- if(lake?shoreCoordinates(position.xz,true).x>3.5:abs(position.x-channelCenter(position.z))>4.52)return 1.0;
+ if(lake?shoreCoordinates(position.xz,true).x>3.5:abs(position.x-channelCenter(position.z))>channelWaterExtent(position.z,uShoreWaterMode))return 1.0;
  // Snow buildup follows the wave envelope rather than appearing between crests.
  float crest=uWaveStrength*(lake?.091:.043);
  return smoothstep(crest,crest+.12,position.y-waterLevel(position.z,uShoreWaterMode));
 }
+float channelWetness(vec3 position){
+ float pool=uShoreWaterMode==2?plungePool(position.z):0.0;
+ float across=abs(position.x-channelCenter(position.z));
+ float edge=channelWaterExtent(position.z,uShoreWaterMode);
+ float edgeWet=1.0-smoothstep(edge-.18,edge+.14+.60*pool,across);
+ float above=position.y-waterLevel(position.z,uShoreWaterMode);
+ float spray=1.0-smoothstep(.035,.24+.42*pool,above);
+ return edgeWet*spray;
+}
 """
- t=t[:at]+(material_light+water_profile+shore_snow if name=='material' else common)+'\n'+t[at:]
+ t=t[:at]+(material_light+water_profile+shore_material if name=='material' else common)+'\n'+t[at:]
  if name=='material':
   t=t.replace('const vec3 lightDirection=vec3(-.4562,.7603,.4562);','uniform vec3 lightDirection;')
   t=t.replace('vec3(.074,.082,.067),sky(reflectRay)*2.05', 'vec3(.074,.082,.067)*mix(.12,1.0,uDaylight),atmosphereFog(reflectRay)*mix(.82,2.05,uDaylight)')
   t=t.replace('vec3(4.4,3.95,3.2)','uLightColor').replace('base*vec3(.35,.40,.20)','base*uLightColor*vec3(.08,.10,.06)')
   t=t.replace('float fog=1.0-exp','ambient*=uSkyAmbient;\n float fog=1.0-exp').replace('direct=mix(direct,vec3(.29,.36,.42),fog)','direct=mix(direct,atmosphereFog(normalize(worldPosition-uEye)),fog)')
+  t=t.replace(' bool ground=',""" if(uShoreWaterMode>0){
+  bool bank=surf.z>3.5&&surf.z<4.5;
+  bool rock=(surf.z>8.5&&surf.z<9.5)||abs(layer-11.0)<.5;
+  if(bank||rock){
+   float wet=channelWetness(worldPosition);
+   if(wet>0.0){
+    float texture=mix(.72,1.0,noise2(worldPosition.xz*1.8+worldPosition.y*.76));
+    wet*=texture;
+    base*=mix(1.0,rock?.63:.53,wet);
+    rough=mix(rough,rock?.30:.43,wet);
+   }
+  }
+ }
+ bool ground=""")
   t=t.replace('base=mix(base,vec3(.63,.70,.74),snow);','if(snow>0.0)snow*=shoreSnowExposure(worldPosition);\n  base=mix(base,vec3(.63,.70,.74),snow);')
  else:
   t=t.replace('vec3 reflection=mix(vec3(.29,.36,.42),vec3(.095,.20,.33),clamp(reflected.y,0.0,1.0));','vec3 reflection=cloudSky(celestialSky(reflected),point,reflected);')

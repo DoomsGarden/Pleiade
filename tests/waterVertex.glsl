@@ -19,23 +19,26 @@ float shoreShallow(float x){
 }
 float swellPhase(vec2 q,float time){
  // Raising the spatial frequency in shallow water slows the advancing crest.
- return 1.48*(q.x+4.0*shoreShallow(q.x))+.19*q.y+.54*sin(q.y*.36)-1.86*time;
+ return 1.10*(q.x+3.2*shoreShallow(q.x))+.115*q.y+.30*sin(q.y*.25)-1.48*time;
 }
 vec3 lakeWave(vec2 p,float time,float strength,bool curved){
+ if(strength==0.0)return vec3(0.0);
  vec2 q=shoreCoordinates(p,curved);
  float shallow=shoreShallow(q.x), delta=.44*shallow*(1.0-shallow);
  float phase=swellPhase(q,time);
- float secondary=2.82*(q.x+1.8*shallow)-.51*q.y-2.91*time+.77;
- float capillary=5.3*q.x+.98*q.y-3.75*time;
- float group=q.y*.48+q.x*.29-time*.39;
- float envelope=.83+.17*cos(group);
- float base=.045+.025*shallow;
+ float secondary=2.04*(q.x+1.3*shallow)-.36*q.y-2.55*time+.77;
+ float ripple=3.58*q.x+.74*q.y-3.75*time;
+ float group=q.y*.25+q.x*.19-time*.32;
+ float envelope=.88+.12*cos(group);
+ float base=.037+.016*shallow;
  float amplitude=base*envelope;
- float height=amplitude*sin(phase)+.017*sin(secondary)+.0035*sin(capillary);
- float dx=(.025*delta*envelope-base*.0493*sin(group))*sin(phase)+amplitude*1.48*(1.0+4.0*delta)*cos(phase)
-          +.017*2.82*(1.0+1.8*delta)*cos(secondary)+.01855*cos(capillary);
- float dz=amplitude*(.19+.1944*cos(q.y*.36))*cos(phase)-base*.0816*sin(group)*sin(phase)
-          -.00867*cos(secondary)+.00343*cos(capillary);
+ // Dominant long crests carry the displacement. Shorter waves add detail
+ // without folding the reflection into similarly strong intersecting cells.
+ float height=amplitude*sin(phase)+.008*sin(secondary)+.0017*sin(ripple);
+ float dx=(.016*delta*envelope-base*.0228*sin(group))*sin(phase)+amplitude*1.10*(1.0+3.2*delta)*cos(phase)
+          +.008*2.04*(1.0+1.3*delta)*cos(secondary)+.006086*cos(ripple);
+ float dz=amplitude*(.115+.075*cos(q.y*.25))*cos(phase)-base*.030*sin(group)*sin(phase)
+          -.00288*cos(secondary)+.001258*cos(ripple);
  return strength*vec3(height,dx,dz-shoreBankSlope(p.y,curved)*dx);
 }
 float recentShoreWater(vec2 p,float time,float strength,bool curved){
@@ -47,8 +50,15 @@ float recentShoreWater(vec2 p,float time,float strength,bool curved){
 float channelCenter(float z){
  return -3.3+3.1*sin(z*.056)+1.3*sin(z*.133+.9);
 }
+float plungePool(float z){
+ float downstream=-z-2.5;
+ return smoothstep(0.0,3.8,downstream)*(1.0-smoothstep(4.0,13.5,downstream));
+}
+float channelWaterExtent(float z,int mode){
+ return 4.52+(mode==2?2.4*plungePool(z):0.0);
+}
 float waterLevel(float z,int mode){
- return mode==0?0.0:.44+z*.010+(mode==2?3.65*smoothstep(-2.5,1.7,z):0.0);
+ return mode==0?0.0:.44+z*.010+(mode==2?3.65*smoothstep(-2.5,.85,z):0.0);
 }
 uniform float uWaterTime;
 uniform float uWaveStrength;
@@ -59,8 +69,8 @@ float channelSlope(float z){
 }
 float waterSlope(float z){
  if(uWaterMode==0)return 0.0;
- float s=clamp((z+2.5)/4.2,0.0,1.0);
- return .010+(uWaterMode==2?3.65*6.0*s*(1.0-s)/4.2:0.0);
+ float s=clamp((z+2.5)/3.35,0.0,1.0);
+ return .010+(uWaterMode==2?3.65*6.0*s*(1.0-s)/3.35:0.0);
 }
 vec3 waveField(vec2 p){
  if(uWaterMode==0)return lakeWave(p,uWaterTime,uWaveStrength,true);
