@@ -5,7 +5,7 @@ import {climateAt,seasons,weatherModes} from './climate.js';
 import {moveDetached,plantContact} from './plant_contact.js';
 import {ceiling,flightLimits,fly} from './flight.js';
 const $=id=>document.getElementById(id), canvas=$('view');
-const VERSION='0.000.00.024';
+const VERSION='0.000.00.025';
 const params=new URLSearchParams(location.search);
 const state={ready:false,scene:'shore',biome:'forest',waterMode:'lake',underwater:false,buildingForm:'cabin',season:'summer',weather:'clear',quality:window.PleiadeAndroid?'eco':'balanced',materials:true,shadows:true,shadowSoft:true,water:true,ssr:false,contact:false,animation:true,waveStrength:.35,time:0,waveTime:0,frames:0,errors:[],fps:0,hdr:false,paused:false};
 window.pleiade={state};
@@ -374,23 +374,34 @@ function advanceFlight(dt){
  const text=Math.round(flight.eye[1])+' m';
  if($('flight-height').textContent!==text)$('flight-height').textContent=text;
 }
-function projectedFrame(eye,target,depthRange){
+function projectedFrame(eye,target,atmospheric=false){
+ const depthRange=atmospheric?flightLimits(eye[1]):[.1,250];
+ const fogDensity=.0025/(1+(atmospheric?Math.max(0,eye[1]-35)/340:0));
  const v=math.look(eye,target),p=math.perspective(opticalFov*Math.PI/180,canvas.width/canvas.height,...depthRange);
- return {eye,v,p,vp:math.mul(p,v),depthRange,right:[v[0],v[4],v[8]],up:[v[1],v[5],v[9]],forward:[-v[2],-v[6],-v[10]]};
+ return {eye,v,p,vp:math.mul(p,v),depthRange,fogDensity,right:[v[0],v[4],v[8]],up:[v[1],v[5],v[9]],forward:[-v[2],-v[6],-v[10]]};
 }
 function cameraFrame(){
  if(flight){
   const {eye,yaw,pitch}=flight, cp=Math.cos(pitch);
   const forward=[Math.sin(yaw)*cp,Math.sin(pitch),Math.cos(yaw)*cp];
-  return projectedFrame(eye,math.add(eye,forward),flightLimits(eye[1]));
+  return projectedFrame(eye,math.add(eye,forward),true);
  }
- let cp=Math.cos(camera.pitch),eye=math.add(camera.target,[Math.sin(camera.yaw)*cp*camera.distance,Math.sin(camera.pitch)*camera.distance,Math.cos(camera.yaw)*cp*camera.distance]);const ground=state.scene==='biomes'?activeBiome:state.scene==='shore'?watershed:null;eye[1]=Math.max(ground?ground.height(eye[0],eye[2])+.46:.3,eye[1]);let target=camera.target;if(skyView){eye=[camera.target[0],flightAltitude,camera.target[2]];target=math.add(eye,[Math.sin(camera.yaw)*cp,Math.sin(camera.pitch),Math.cos(camera.yaw)*cp]);}
  if(state.underwater&&state.scene==='shore'){
   const z=state.waterMode==='falls'?-7:-6;
-  eye=[state.waterMode==='lake'?-11:channel(z),waterBase(state.waterMode,z)-.43,z];
-  target=math.add(eye,[Math.sin(camera.yaw)*2,Math.min(.8,camera.pitch)*1.3-.45,Math.cos(camera.yaw)*2]);
+  const eye=[state.waterMode==='lake'?-11:channel(z),waterBase(state.waterMode,z)-.43,z];
+  const target=math.add(eye,[Math.sin(camera.yaw)*2,Math.min(.8,camera.pitch)*1.3-.45,Math.cos(camera.yaw)*2]);
+  return projectedFrame(eye,target);
  }
- return projectedFrame(eye,target,[.1,250]);
+ const cp=Math.cos(camera.pitch);
+ const direction=[Math.sin(camera.yaw)*cp,Math.sin(camera.pitch),Math.cos(camera.yaw)*cp];
+ if(skyView){
+  const eye=[camera.target[0],flightAltitude,camera.target[2]];
+  return projectedFrame(eye,math.add(eye,direction),true);
+ }
+ const eye=math.add(camera.target,math.scale(direction,camera.distance));
+ const ground=state.scene==='biomes'?activeBiome:state.scene==='shore'?watershed:null;
+ eye[1]=Math.max(ground?ground.height(eye[0],eye[2])+.46:.3,eye[1]);
+ return projectedFrame(eye,camera.target);
 }
 function setQuality(name){state.quality=name;$('quality').value=name;if(state.ready){drawAnchor=null;resizeShadow();resize();}}
 function drawGroup(g){gl.bindVertexArray(g.mesh.vao);gl.drawElementsInstanced(gl.TRIANGLES,g.mesh.count,gl.UNSIGNED_INT,0,g.instances);}
@@ -480,7 +491,7 @@ function render(){if(!state.ready||gl.isContextLost())return;
  lightVP=math.mul(math.ortho(-range,range,-range,range,.1,200),math.look(math.scale(skyFrame.light,100),[0,0,0]));
  const c=cameraFrame();uploadSceneMeshes(c);updateCloudCache(c);gl.enable(gl.DEPTH_TEST);gl.enable(gl.CULL_FACE);gl.disable(gl.BLEND);
  if(state.shadows&&shadowDirty){gl.bindFramebuffer(gl.FRAMEBUFFER,shadowFbo);gl.viewport(0,0,shadowSize,shadowSize);gl.clear(gl.DEPTH_BUFFER_BIT);let p=programs.shadow;gl.useProgram(p.id);um(p,'uVP',lightVP);uf(p,'uTime',state.time);uf(p,'uWind',climate.wind);gl.enable(gl.POLYGON_OFFSET_FILL);gl.polygonOffset(2,4);drawGroups();gl.disable(gl.POLYGON_OFFSET_FILL);shadowDirty=false;}
- gl.bindFramebuffer(gl.FRAMEBUFFER,sceneFbo);gl.viewport(0,0,canvas.width,canvas.height);gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);let p=programs.material;gl.useProgram(p.id);skyUniforms(p,c);um(p,'uVP',c.vp);um(p,'uView',c.v);um(p,'uLightVP',lightVP);uv(p,'uEye',c.eye);uf(p,'uTime',state.time);uf(p,'uWind',climate.wind);uv(p,'uClimate',[climate.autumn,climate.frost,climate.wet]);uf(p,'uWetTime',state.waveTime);uf(p,'uWaveStrength',state.waveStrength);uf(p,'uFogDensity',.0025/(1+(flight?Math.max(0,c.eye[1]-35)/340:0)));uf(p,'uTerrainSeed',world.seed%65536);ui(p,'uShadows',state.shadows);ui(p,'uShadowSoft',state.shadowSoft);ui(p,'uNatural',1);ui(p,'uMaterials',state.materials);ui(p,'uWet',state.scene==='shore'&&state.water&&state.waterMode==='lake');ui(p,'uShoreWaterMode',state.scene==='shore'&&state.water?waterModes.indexOf(state.waterMode):-1);ui(p,'uVisibilityEnabled',0);bind(shadowTexture,0);bind(visibilityTexture,11);ui(p,'uShadow',0);materialTextures.forEach((t,i)=>bind(t,5+i));drawGroups();
+ gl.bindFramebuffer(gl.FRAMEBUFFER,sceneFbo);gl.viewport(0,0,canvas.width,canvas.height);gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);let p=programs.material;gl.useProgram(p.id);skyUniforms(p,c);um(p,'uVP',c.vp);um(p,'uView',c.v);um(p,'uLightVP',lightVP);uv(p,'uEye',c.eye);uf(p,'uTime',state.time);uf(p,'uWind',climate.wind);uv(p,'uClimate',[climate.autumn,climate.frost,climate.wet]);uf(p,'uWetTime',state.waveTime);uf(p,'uWaveStrength',state.waveStrength);uf(p,'uFogDensity',c.fogDensity);uf(p,'uTerrainSeed',world.seed%65536);ui(p,'uShadows',state.shadows);ui(p,'uShadowSoft',state.shadowSoft);ui(p,'uNatural',1);ui(p,'uMaterials',state.materials);ui(p,'uWet',state.scene==='shore'&&state.water&&state.waterMode==='lake');ui(p,'uShoreWaterMode',state.scene==='shore'&&state.water?waterModes.indexOf(state.waterMode):-1);ui(p,'uVisibilityEnabled',0);bind(shadowTexture,0);bind(visibilityTexture,11);ui(p,'uShadow',0);materialTextures.forEach((t,i)=>bind(t,5+i));drawGroups();
  if(state.water&&state.scene==='shore')drawWater(c);
  gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.disable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);p=programs.composite;gl.useProgram(p.id);skyUniforms(p,c);bind(cloudTexture||visibilityTexture,13);ui(p,'uCloudMap',13);ui(p,'uCloudCached',cloudReuse&&cloudAmount>0);for(let i=0;i<4;i++)bind(targets[[0,1,3,2][i]],i);bind(waterDepth,4);ui(p,'uWaterDepth',4);ui(p,'uContact',state.hdr&&state.contact);ui(p,'uWater',state.water&&state.scene==='shore');ui(p,'uWaterSSR',state.ssr&&state.water);ui(p,'uUnderwater',state.underwater&&state.water);setWaterUniforms(p);ui(p,'uContactCount',waterContacts.length/3);
  if(waterContacts.length)gl.uniform3fv(loc(p,'uWaterContacts[0]'),waterContacts);

@@ -1,3 +1,9 @@
+# Versión de prueba 0.000.00.025 — vista de inspección atmosférica
+
+- La cámara de inspección conserva el terreno y el agua visibles al ganar altura. Comparte el alcance de la proyección y la densidad de bruma con la cámara de vuelo, hasta el límite de 6 km de la escena.
+
+---
+
 # Versión de prueba 0.000.00.024 — iluminación del volumen de nubes
 
 - La estrella y el satélite ficticios iluminan el volumen de nubes antes de calcular su atenuación local. El terreno y el brillo directo del agua conservan la luz filtrada por la nubosidad.
