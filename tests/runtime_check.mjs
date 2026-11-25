@@ -2,7 +2,7 @@
 import fs from 'node:fs/promises';import assert from 'node:assert/strict';
 import {copyPrototype, createBiome, terrainPieces} from '../dist/biomes.js';
 import {climateAt} from '../dist/climate.js';
-import {channel,waterBase,createWatershed,driftSamples} from '../dist/watershed.js';
+import {channel,lakeBank,waterBase,createWatershed,driftSamples} from '../dist/watershed.js';
 import {plantContact} from '../dist/plant_contact.js';
 import {fly} from '../dist/flight.js';
 import {cloudTransmission} from '../dist/celestial.js';
@@ -185,6 +185,20 @@ for(const [mode,index] of ['lake','river','falls'].entries()){
  if(index!=='lake'){
   assert(b[2]<a[2]);assert(b[1]<a[1]);
   assert(Math.abs(b[0]-channel(b[2]))<2.1);
+ }
+}
+// The mesh must end under dry ground even at the maximum wave setting.
+// Sample the actual mesh edge between rows as well as the beach beyond it.
+for(const seed of [0,17,182,800,1300,12345,99999]){
+ const {water,height}=createWatershed('lake',seed);
+ const rowStride=101*8,edgeOffset=100*8;
+ for(let i=edgeOffset;i+rowStride<water.vertices.length;i+=rowStride){
+  for(const t of [0,.5,1]){
+   const x=water.vertices[i]*(1-t)+water.vertices[i+rowStride]*t;
+   const z=water.vertices[i+2]*(1-t)+water.vertices[i+rowStride+2]*t;
+   assert(height(x,z)>.101,`water mesh edge should stay dry at seed ${seed}, z ${z}`);
+   for(let d=4;d<=24;d++)assert(height(lakeBank(z)+d,z)>.091,'dry beach stays above the wave envelope');
+  }
  }
 }
 el('dive').onclick();pleiade.render();assert.equal(uniformWrites.get('uUnderwater'),true);

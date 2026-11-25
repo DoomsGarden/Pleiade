@@ -1,3 +1,9 @@
+# Versión de prueba 0.000.00.026 — orilla continua del lago
+
+- El relieve de las colinas se incorpora gradualmente detrás de la playa. La orilla visible sigue el encuentro de las olas con el terreno y el borde de la malla queda cubierto por suelo seco.
+
+---
+
 # Versión de prueba 0.000.00.025 — vista de inspección atmosférica
 
 - La cámara de inspección conserva el terreno y el agua visibles al ganar altura. Comparte el alcance de la proyección y la densidad de bruma con la cámara de vuelo, hasta el límite de 6 km de la escena.

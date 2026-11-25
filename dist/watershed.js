@@ -24,7 +24,9 @@ function bedProfile(mode,seed){
         const hills=.83*Math.sin(x*.097+grain)*Math.sin(z*.111)+.48*Math.sin(z*.074-x*.081);
         if(mode==='lake'){
             const inland=x-lakeBank(z);
-            return .075*inland + smooth(inland/7)*hills + rough*.64;
+            // Ease the hills in behind the beach so a hollow cannot drop
+            // below the wave crests at the end of the water mesh.
+            return .075*inland + smooth(inland/30)*hills + rough*.64;
         }
         const offset=Math.abs(x-channel(z));
         const inner=-1.03+.12*Math.sin(z*.22),bank=.66+hills*.38;
