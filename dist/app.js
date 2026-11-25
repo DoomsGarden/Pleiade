@@ -4,8 +4,9 @@ import {createWatershed,waterModes,driftSamples,channel,lakeBank,waterBase,chann
 import {climateAt,seasons,weatherModes} from './climate.js';
 import {moveDetached,plantContact} from './plant_contact.js';
 import {ceiling,flightLimits,fly} from './flight.js';
+import {createRiverBridge} from './river_bridge.js?v=0.000.00.028';
 const $=id=>document.getElementById(id), canvas=$('view');
-const VERSION='0.000.00.027';
+const VERSION='0.000.00.028';
 const params=new URLSearchParams(location.search);
 const state={ready:false,scene:'shore',biome:'forest',waterMode:'lake',underwater:false,buildingForm:'cabin',season:'summer',weather:'clear',quality:window.PleiadeAndroid?'eco':'balanced',materials:true,shadows:true,shadowSoft:true,water:true,ssr:false,contact:false,animation:true,waveStrength:.35,time:0,waveTime:0,frames:0,errors:[],fps:0,hdr:false,paused:false};
 window.pleiade={state};
@@ -28,7 +29,7 @@ const flightCommands=['forward','back','left','right','rise','sink'];
 let flight=null,gesture=null;
 let camera={target:[-1,0,-2],yaw:.8,pitch:.32,distance:15};
 let activeBiome, drawAnchor, layoutRevision=0, drawnRevision=-1, drawnSignature=0, submittedTriangles=0, needleBundles=0, foliageBundles=0;
-let watershed,shoreObjects,waterFbo,waterDepth,glassGroup;
+let watershed,shoreObjects,shoreBridge,waterFbo,waterDepth,glassGroup;
 let climate=climateAt('summer','clear',0),leafStep=16,detached=null,lastDetachedAge=0,shadowWindStep=-1;
 const buildingNames={cabin:'La cabaña',stone:'El refugio de piedra',shelter:'El pabellón de madera',house:'La casa de teja'};
 const shoreNames={lake:'La orilla',river:'El río',falls:'La cascada'};
@@ -157,6 +158,8 @@ function regenerateShore(){
    shoreObjects.push({mesh:rocks,instance:[size,0,0,0,0,sy,0,0,0,0,size*.91,0,x,y,z,1,.42,.43,.40,1,.86,0,9,0]});
   }
  }
+ shoreBridge=createRiverBridge(state.waterMode,watershed,sceneData.meshIds);
+ if(shoreBridge)shoreObjects.push(...shoreBridge.objects);
  waterContacts=collectWaterContacts(state.waterMode,shoreObjects,new Set(sceneData.meshes.filter(m=>m.id===sceneData.meshIds.rock||m.name==='RockDetail').map(m=>m.id)));
  layoutRevision++;drawAnchor=null;shadowDirty=true;
 }
@@ -295,6 +298,7 @@ function useScene(name){
  $('scene-title').textContent=title;$('scene-description').textContent=description;
  $('biome-control').hidden=name!=='biomes';
  $('shore-control').hidden=name!=='shore';$('building-control').hidden=name!=='building';
+ $('bridge-view').hidden=name!=='shore'||!shoreBridge;
  $('impact-actions').hidden=name!=='materials';
  if(name!=='materials')detached=null;
  document.querySelectorAll('[data-scene]').forEach(button=>{let active=button.dataset.scene===name;button.classList.toggle('active',active);button.setAttribute('aria-pressed',active);});
@@ -335,6 +339,16 @@ function resetCamera(){
  else if(state.waterMode==='falls')camera={target:[-1.65,2.1,.0],yaw:2.53,pitch:.24,distance:24};
  else if(state.waterMode==='river')camera={target:[-1.7,1.2,-5.2],yaw:.79,pitch:.29,distance:20};
  else camera={target:[1.4,.65,-5.0],yaw:.61,pitch:.28,distance:19};
+}
+function focusRiverBridge(){
+ if(state.scene!=='shore'||!shoreBridge)return;
+ endFlight();
+ clearPointerState();
+ skyView=false;
+ state.underwater=false;
+ $('dive').textContent='Mirar bajo el agua';
+ const distance=Math.min(48,Math.max(23,18*canvas.height/canvas.width));
+ camera={target:[...shoreBridge.focus],yaw:2.73,pitch:.48,distance};
 }
 function clearFlightInputs(){flightKeys.clear();flightButtons.clear();}
 function clearPointerState(){pointers.clear();gesture=null;clearFlightInputs();}
@@ -582,6 +596,7 @@ function setupUI(){
  window.addEventListener('pagehide',saveWorld);
 
  const panel=open=>{if(open)clearFlightInputs();$('panel').hidden=!open;$('settings').setAttribute('aria-expanded',open);};$('settings').onclick=()=>panel($('panel').hidden);$('close-panel').onclick=()=>panel(false);
+ $('bridge-view').onclick=focusRiverBridge;
  $('reset').onclick=resetCamera;$('plus').onclick=()=>camera.distance=Math.max(3,camera.distance*.83);$('minus').onclick=()=>camera.distance=Math.min(48,camera.distance*1.2);$('height').onclick=()=>{camera.pitch=camera.pitch>.65?.28:.95;camera.distance=camera.pitch>.65?28:15;};
  document.querySelectorAll('[data-scene]').forEach(b=>b.onclick=()=>{if(state.ready)useScene(b.dataset.scene);});
  for(const name of ['materials','shadows','shadowSoft','water','ssr','contact','animation'])$(name).onchange=()=>{state[name]=$(name).checked;};

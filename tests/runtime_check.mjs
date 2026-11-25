@@ -5,6 +5,7 @@ import {climateAt} from '../dist/climate.js';
 import {channel,lakeBank,waterBase,channelWaterExtent,createWatershed,driftSamples} from '../dist/watershed.js';
 import {plantContact} from '../dist/plant_contact.js';
 import {fly} from '../dist/flight.js';
+import {createRiverBridge} from '../dist/river_bridge.js';
 import {cloudTransmission} from '../dist/celestial.js';
 let id=0,boundFbo=null,activeUnit=0,currentProgram=null;const attachments=new Map(),textures=new Map(),buffers=new Map();let drawCalls=0;const uniformWrites=new Map();
 let boundVao,sceneSubmissions;
@@ -228,7 +229,45 @@ for(const seed of [0,17,182,800,1300,12345,99999]){
  }
 }
 el('dive').onclick();pleiade.render();assert.equal(uniformWrites.get('uUnderwater'),true);
+// The timber prototype sits upstream of the waterfall, with one dry approach on either side.
+for(const mode of ['river','falls']){
+ for(const seed of [0,7,182,12345,99999,4294967295]){
+  const bed=createWatershed(mode,seed);
+  const bridge=createRiverBridge(mode,bed,geometry.meshIds);
+  assert.equal(bridge.focus.length,3);
+  assert(bridge.objects.every(part=>part.instance.length===24&&part.instance.every(Number.isFinite)));
+  assert(bridge.objects.length>10&&bridge.objects.length<128,'the crossing uses a bounded instanced mesh budget');
+  assert(bridge.center[1]>18&&bridge.designWater>=waterBase(mode,bridge.center[1])+.343);
+  assert(bridge.clearance>0,'the lower beams clear design flood and maximum crest');
+  assert.equal(bridge.supports.length,2);
+  for(const support of bridge.supports){
+   const [x,,z]=support.center;
+   assert(support.bottom<bed.height(x,z)&&support.top>support.high,'each abutment joins the triangulated terrain');
+   assert(bed.height(x,z)>bridge.designWater,'abutments stay on land during the design flood');
+  }
+  assert.equal(bridge.approaches.length,2);
+  for(const approach of bridge.approaches){
+   const [x,y,z]=approach.outer;
+   assert(Math.abs(y-bed.height(x,z))<.07,'each approach meets the procedurally generated bank');
+   assert(Math.abs(approach.grade)<.26,'approach remains gentle');
+  }
+ }
+ pleiade.setWaterMode(mode);
+ assert.equal(el('bridge-view').hidden,false);
+ const bridge=createRiverBridge(mode,createWatershed(mode,pleiade.world.seed),geometry.meshIds);
+ el('dive').onclick();assert(pleiade.state.underwater);
+ el('bridge-view').onclick();
+ assert.deepEqual(pleiade.camera.target,bridge.focus);
+ assert(!pleiade.state.underwater);
+ const submitted=drawAt(bridge.focus,10);
+ for(const material of [27,28]){
+  assert(bridge.objects.some(part=>part.instance[22]===material&&drawsPart(submitted,part,meshById.get(part.mesh).indices)),
+   'both bridge materials go through the scene draw path');
+ }
+}
 pleiade.setWaterMode('lake');
+assert.equal(createRiverBridge('lake',createWatershed('lake',12345),geometry.meshIds),null);
+assert.equal(el('bridge-view').hidden,true);
 el('water').checked=false;el('water').onchange();pleiade.render();
 assert.equal(uniformWrites.get('uShoreWaterMode'),-1,'hide-water mode disables the shore snow mask');
 el('water').checked=true;el('water').onchange();

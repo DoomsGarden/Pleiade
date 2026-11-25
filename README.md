@@ -8,7 +8,7 @@ La APK y el instalador EXE x64 de Windows incluyen el visor WebGL y sus recursos
 
 La demo nativa de C++ se distribuyó en un paquete x64 con SDL2, materiales y los tres recorridos de prueba. [Paquete nativo .018](https://github.com/DoomsGarden/Pleiade/releases/tag/v0.000.00.018)
 
-- **Orilla** permite explorar una cuenca de 104 m de lado en modo lago, río o cascada. En **Ajustes → Mirar bajo el agua** se puede inspeccionar el fondo.
+- **Orilla** permite explorar una cuenca de 104 m de lado en modo lago, río o cascada. En **Ajustes → Mirar bajo el agua** se puede inspeccionar el fondo. En **Río** y **Cascada**, **Ver pasarela** encuadra el cruce de madera aguas arriba, con apoyos adaptados a la semilla.
 - **Edificación** permite alternar entre la cabaña, la casa de teja, el refugio de piedra y el pabellón abierto. **Biomas** abre cinco paisajes que se regeneran con la semilla del mundo.
 - En **Ajustes → Estación y clima** se puede seleccionar la estación o vincularla al reloj del mundo. En **Materiales**, ese mismo panel permite desprender una rama de prueba y restaurarla.
 

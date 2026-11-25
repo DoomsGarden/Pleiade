@@ -1,3 +1,10 @@
+# Versión de prueba 0.000.00.028 — pasarela aguas arriba
+
+- Río y Cascada incorporan una pasarela de madera de un solo vano. El generador alinea el cruce con el cauce, asienta estribos y accesos en ambas orillas y deja un margen bajo las vigas sobre la cresta máxima y la crecida de diseño.
+- El botón **Ver pasarela** encuadra el prototipo para inspeccionarlo en el visor WebGL. La prueba de recorrido con colisiones queda pendiente.
+
+---
+
 # Versión de prueba 0.000.00.027 — río, cascada y oleaje del lago
 
 - Las rocas marrones del cauce descansan en el fondo triangulado y asoman por encima del agua.
