@@ -459,3 +459,47 @@ pleiade.setAtmosphere({clouds:.8,altitude:2200});
 el('fly').onclick();pleiade.render();
 assert.equal(pleiade.report().cloudCache.updates,beforeCut+1,'a new flight pose must refresh the panorama even with a frozen clock');
 console.log('PASS: flight pose, keys and touch cancellation, terrain clearance, depth range, cloud update rate and view restoration.');
+
+// Drive the actual inspection and flight controls to both vertical poles.
+pleiade.useScene('shore');
+el('flight-altitude').value=6000;el('flight-altitude').oninput();
+el('optical-fov').value=8;el('optical-fov').oninput();
+const arrow=key=>canvas.listeners.keydown({key,preventDefault(){}});
+const basis=()=>['uCameraRight','uCameraUp','uCameraForward'].map(name=>uniformWrites.get(name));
+const dot=(a,b)=>a.reduce((sum,x,i)=>sum+x*b[i],0);
+function checkPole(y){
+ pleiade.render();
+ const [right,up,forward]=basis();
+ assert(Math.abs(forward[0])+Math.abs(forward[2])<1e-8&&forward[1]===y,'look points directly along the vertical');
+ for(const axis of [right,up,forward])assert(Math.abs(dot(axis,axis)-1)<1e-6,'each view axis is unit length');
+ for(const pair of [[right,up],[right,forward],[up,forward]])assert(Math.abs(dot(...pair))<1e-6,'view axes remain perpendicular');
+ assert(Math.abs(right[0]*up[2]-right[2]*up[0]-y)<1e-6,'view does not flip when looking along the vertical');
+ return basis();
+}
+for(let i=0;i<24;i++)arrow('ArrowDown');
+const nadir=checkPole(-1);
+arrow('ArrowLeft');const turned=checkPole(-1);
+assert(dot(nadir[0],turned[0])<.999,'turning at nadir retains the requested heading');
+el('fly').onclick();
+assert.deepEqual(checkPole(-1),turned,'switch into flight at nadir without changing camera orientation');
+for(let i=0;i<40;i++)arrow('ArrowUp');
+checkPole(1);
+canvas.onpointerdown({pointerId:20,clientX:120,clientY:620});
+canvas.onpointermove({pointerId:20,clientX:144,clientY:30});
+canvas.onpointerup({pointerId:20});
+checkPole(-1);
+el('flight-return').onclick();
+assert.deepEqual(checkPole(-1),turned,'leaving flight restores the inspection heading');
+const beforePan=pleiade.report().camera.target.slice();
+canvas.onpointerdown({pointerId:21,clientX:120,clientY:300});
+canvas.onpointerdown({pointerId:22,clientX:180,clientY:300});
+canvas.onpointermove({pointerId:21,clientX:120,clientY:342});
+canvas.onpointermove({pointerId:22,clientX:180,clientY:342});
+canvas.onpointerup({pointerId:21});canvas.onpointerup({pointerId:22});
+const afterPan=pleiade.report().camera.target;
+assert(Math.hypot(afterPan[0]-beforePan[0],afterPan[2]-beforePan[2])>.1,'two-finger pan still moves the footprint at nadir');
+checkPole(-1);
+pleiade.useScene('shore');
+for(let i=0;i<24;i++)arrow('ArrowDown');
+assert.equal(pleiade.camera.pitch,.07,'the orbit camera keeps its ground-facing range');
+console.log('PASS: vertical camera axes, heading, flight handoff and panning at nadir.');

@@ -55,6 +55,8 @@ La cámara mantiene margen sobre el terreno y el agua. Puedes despegar desde las
 
 Desde `0.000.00.021`, activa **Cobertura de nubes**, fija la altura de inspección en **2.200 m** y pulsa **Volar por la escena**. Arrastra para mirar hacia el lago a través de la capa inferior. Repite a **350 m** para ver la orilla desde debajo de la capa. Las nubes siguen desactivadas al inicio. Desde `0.000.00.023`, las nubes que quedan delante de una ventana también atenúan su reflejo.
 
+Desde `0.000.00.029`, fija **Altura de inspección** en **6.000 m** y **Campo de visión** en **8°**. Arrastra hacia arriba o usa la flecha abajo con el lienzo enfocado para mirar verticalmente al suelo. Puedes girar ese encuadre y desplazarlo con dos dedos. **Volar por la escena** toma el mismo rumbo e inclinación.
+
 ## Regenerar materiales y escenas
 
 Blender genera los mapas de color, opacidad, normales tangentes y rugosidad del atlas. El exportador C++ actualiza las mallas y las escenas de referencia del visor desde el renderer.

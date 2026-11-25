@@ -1,3 +1,10 @@
+# Versión de prueba 0.000.00.029 — encuadres verticales en vuelo e inspección
+
+- La cámara de inspección y la de vuelo permiten mirar exactamente hacia arriba o hacia abajo. La orientación conserva el rumbo al alcanzar la vertical y al alternar entre ambas cámaras.
+- El desplazamiento con dos dedos conserva la dirección en una toma cenital, incluso con el zoom óptico de 8°.
+
+---
+
 # Versión de prueba 0.000.00.028 — pasarela aguas arriba
 
 - Río y Cascada incorporan una pasarela de madera de un solo vano. El generador alinea el cruce con el cauce, asienta estribos y accesos en ambas orillas y deja un margen bajo las vigas sobre la cresta máxima y la crecida de diseño.

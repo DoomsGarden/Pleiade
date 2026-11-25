@@ -6,7 +6,8 @@ import {moveDetached,plantContact} from './plant_contact.js';
 import {ceiling,flightLimits,fly} from './flight.js';
 import {createRiverBridge} from './river_bridge.js?v=0.000.00.028';
 const $=id=>document.getElementById(id), canvas=$('view');
-const VERSION='0.000.00.028';
+const VERSION='0.000.00.029';
+const polePitch=Math.PI/2;
 const params=new URLSearchParams(location.search);
 const state={ready:false,scene:'shore',biome:'forest',waterMode:'lake',underwater:false,buildingForm:'cabin',season:'summer',weather:'clear',quality:window.PleiadeAndroid?'eco':'balanced',materials:true,shadows:true,shadowSoft:true,water:true,ssr:false,contact:false,animation:true,waveStrength:.35,time:0,waveTime:0,frames:0,errors:[],fps:0,hdr:false,paused:false};
 window.pleiade={state};
@@ -15,7 +16,14 @@ const math={
  dot:(a,b)=>a.reduce((s,x,i)=>s+x*b[i],0),cross:(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],
  unit:a=>{let l=Math.hypot(...a);return a.map(x=>x/(l||1));},
  mul:(a,b)=>{const o=new Float32Array(16);for(let c=0;c<4;c++)for(let r=0;r<4;r++)for(let k=0;k<4;k++)o[c*4+r]+=a[k*4+r]*b[c*4+k];return o;},
- look:(eye,target)=>{let z=math.unit(math.sub(eye,target)),x=math.unit(math.cross([0,1,0],z)),y=math.cross(z,x);return new Float32Array([x[0],y[0],z[0],0,x[1],y[1],z[1],0,x[2],y[2],z[2],0,-math.dot(x,eye),-math.dot(y,eye),-math.dot(z,eye),1]);},
+ viewFromAxes:(eye,x,y,z)=>new Float32Array([
+  x[0],y[0],z[0],0,x[1],y[1],z[1],0,x[2],y[2],z[2],0,
+  -math.dot(x,eye),-math.dot(y,eye),-math.dot(z,eye),1
+ ]),
+ look:(eye,target)=>{
+  const z=math.unit(math.sub(eye,target)),x=math.unit(math.cross([0,1,0],z));
+  return math.viewFromAxes(eye,x,math.cross(z,x),z);
+ },
  perspective:(fov,aspect,n,fz)=>{let f=1/Math.tan(fov/2);return new Float32Array([f/aspect,0,0,0,0,f,0,0,0,0,(fz+n)/(n-fz),-1,0,0,2*fz*n/(n-fz),0]);},
  ortho:(l,r,b,t,n,f)=>new Float32Array([2/(r-l),0,0,0,0,2/(t-b),0,0,0,0,-2/(f-n),0,-(r+l)/(r-l),-(t+b)/(t-b),-(f+n)/(f-n),1])
 };
@@ -375,8 +383,11 @@ function surfaceAt(x,z){
 function beginFlight(){
  if(!state.ready||flight)return;
  const {eye,forward}=cameraFrame();
+ const fromInspection=skyView&&!state.underwater;
+ const yaw=fromInspection?camera.yaw:Math.atan2(forward[0],forward[2]);
+ const pitch=fromInspection?camera.pitch:Math.atan2(forward[1],Math.hypot(forward[0],forward[2]));
  clearPointerState();
- flight={eye:[...eye],yaw:Math.atan2(forward[0],forward[2]),pitch:Math.asin(Math.max(-1,Math.min(1,forward[1]))),
+ flight={eye:[...eye],yaw,pitch,
   previousView:{skyView,underwater:state.underwater}};
  state.underwater=false;$('dive').textContent='Mirar bajo el agua';skyView=false;
  flight.eye=fly(flight.eye,flight.yaw,[0,0,0],0,flightEdge(),surfaceAt);
@@ -398,34 +409,39 @@ function advanceFlight(dt){
  const text=Math.round(flight.eye[1])+' m';
  if($('flight-height').textContent!==text)$('flight-height').textContent=text;
 }
-function projectedFrame(eye,target,atmospheric=false){
+function projectedFrame(eye,v,atmospheric=false){
  const depthRange=atmospheric?flightLimits(eye[1]):[.1,250];
  const fogDensity=.0025/(1+(atmospheric?Math.max(0,eye[1]-35)/340:0));
- const v=math.look(eye,target),p=math.perspective(opticalFov*Math.PI/180,canvas.width/canvas.height,...depthRange);
+ const p=math.perspective(opticalFov*Math.PI/180,canvas.width/canvas.height,...depthRange);
  return {eye,v,p,vp:math.mul(p,v),depthRange,fogDensity,right:[v[0],v[4],v[8]],up:[v[1],v[5],v[9]],forward:[-v[2],-v[6],-v[10]]};
 }
+function atmosphericFrame(eye,yaw,pitch){
+ const sinYaw=Math.sin(yaw),cosYaw=Math.cos(yaw);
+ const cosPitch=Math.abs(pitch)===polePitch?0:Math.cos(pitch);
+ // Heading fixes the image's right axis even when looking straight up or down.
+ const right=[-cosYaw,0,sinYaw];
+ const back=[-sinYaw*cosPitch,-Math.sin(pitch),-cosYaw*cosPitch];
+ const view=math.viewFromAxes(eye,right,math.cross(back,right),back);
+ return projectedFrame(eye,view,true);
+}
 function cameraFrame(){
- if(flight){
-  const {eye,yaw,pitch}=flight, cp=Math.cos(pitch);
-  const forward=[Math.sin(yaw)*cp,Math.sin(pitch),Math.cos(yaw)*cp];
-  return projectedFrame(eye,math.add(eye,forward),true);
- }
+ if(flight)return atmosphericFrame(flight.eye,flight.yaw,flight.pitch);
  if(state.underwater&&state.scene==='shore'){
   const z=state.waterMode==='falls'?-7:-6;
   const eye=[state.waterMode==='lake'?-11:channel(z),waterBase(state.waterMode,z)-.43,z];
   const target=math.add(eye,[Math.sin(camera.yaw)*2,Math.min(.8,camera.pitch)*1.3-.45,Math.cos(camera.yaw)*2]);
-  return projectedFrame(eye,target);
+  return projectedFrame(eye,math.look(eye,target));
+ }
+ if(skyView){
+  const eye=[camera.target[0],flightAltitude,camera.target[2]];
+  return atmosphericFrame(eye,camera.yaw,camera.pitch);
  }
  const cp=Math.cos(camera.pitch);
  const direction=[Math.sin(camera.yaw)*cp,Math.sin(camera.pitch),Math.cos(camera.yaw)*cp];
- if(skyView){
-  const eye=[camera.target[0],flightAltitude,camera.target[2]];
-  return projectedFrame(eye,math.add(eye,direction),true);
- }
  const eye=math.add(camera.target,math.scale(direction,camera.distance));
  const ground=state.scene==='biomes'?activeBiome:state.scene==='shore'?watershed:null;
  eye[1]=Math.max(ground?ground.height(eye[0],eye[2])+.46:.3,eye[1]);
- return projectedFrame(eye,camera.target);
+ return projectedFrame(eye,math.look(eye,camera.target));
 }
 function setQuality(name){state.quality=name;$('quality').value=name;if(state.ready){drawAnchor=null;resizeShadow();resize();}}
 function drawGroup(g){gl.bindVertexArray(g.mesh.vao);gl.drawElementsInstanced(gl.TRIANGLES,g.mesh.count,gl.UNSIGNED_INT,0,g.instances);}
@@ -553,6 +569,13 @@ function download(blob,name){
  toast('Descarga solicitada: '+name);
 }
 function report(){return {viewer:VERSION,desktopBase:'0.003.0.17',browser:navigator.userAgent,screen:{width:innerWidth,height:innerHeight,dpr:devicePixelRatio},render:{width:canvas.width,height:canvas.height,shadow:shadowSize,shadowDepthMiB:shadowSize*shadowSize*4/1048576,trianglesPerPass:submittedTriangles,needleBundles,foliageBundles,shadowFilter:state.shadowSoft?'continuous-tent-9':'box-9',hdr:state.hdr},settings:{...state},glassPanes:glassGroup?.instances??0,shore:state.scene==='shore'?{mode:state.waterMode,width:watershed.area,contacts:waterContacts.length/3}:null,climate:{...climate},detached:detached?.pieces.size??0,biome:state.scene==='biomes'?{seed:world.seed,plants:activeBiome.plants,rocks:activeBiome.rocks,trees:activeBiome.trees,understory:activeBiome.understory,tiles:activeBiome.terrain.pieces.length,vines:activeBiome.vines}:null,celestial:{seed:world.seed,elapsedDays:world.elapsedDays,daySeconds:world.daySeconds,running:skyRunning,cloudAmount,flightAltitude,opticalFov,turbidity},camera,flight:flight?{eye:[...flight.eye],yaw:flight.yaw,pitch:flight.pitch,depthRange:flightLimits(flight.eye[1])}:null,capabilities:{webgl:gl?gl.getParameter(gl.VERSION):null,maxTextureSize:gl?gl.getParameter(gl.MAX_TEXTURE_SIZE):null},cloudCache:{enabled:cloudReuse,width:cloudWidth,height:cloudWidth/2,updates:cloudBuilds,estimatedMiB:cloudWidth*cloudWidth/2*(state.hdr?8:4)/1048576},memoryPolicy:{budgetMiB:4096,kind:'design ceiling, not measured browser allocation'},note:'FPS de presentación del navegador; no es tiempo GPU ni un benchmark de la RTX.'};}
+function adjustLook(yawDelta,pitchDelta){
+ const view=flight||camera;
+ const atmospheric=flight!==null||skyView;
+ const minPitch=atmospheric?-polePitch:.07,maxPitch=atmospheric?polePitch:1.4;
+ view.yaw+=yawDelta;
+ view.pitch=Math.max(minPitch,Math.min(maxPitch,view.pitch+pitchDelta));
+}
 function setupUI(){
  $('biome').onchange=()=>useBiome($('biome').value);
  $('water-mode').onchange=()=>setWaterMode($('water-mode').value);
@@ -633,22 +656,30 @@ function setupUI(){
   if(!previous||next.n!==previous.n)return;
   const dx=next.x-previous.x,dy=next.y-previous.y;
   if(next.n===1){
-   const view=flight||camera, pitchLimit=flight?1.5:1.4;
-   view.yaw-=dx*.006;
-   view.pitch=Math.max(flight||skyView?-pitchLimit:.07,Math.min(pitchLimit,view.pitch+dy*.006));
+   adjustLook(-dx*.006,dy*.006);
    return;
   }
   if(flight)return;
   camera.distance=Math.max(3,Math.min(48,camera.distance*(previous.d/Math.max(5,next.d))));
   const c=cameraFrame(),speed=camera.distance*.0015;
-  camera.target=math.add(camera.target,math.add(math.scale(c.right,-dx*speed),math.scale([c.forward[0],0,c.forward[2]],dy*speed)));
+  const panForward=skyView&&!state.underwater?[Math.sin(camera.yaw),0,Math.cos(camera.yaw)]:[c.forward[0],0,c.forward[2]];
+  camera.target=math.add(camera.target,math.add(math.scale(c.right,-dx*speed),math.scale(panForward,dy*speed)));
   const edge=state.scene==='biomes'?43:state.scene==='shore'?38:15;
   camera.target[0]=Math.max(-edge,Math.min(edge,camera.target[0]));camera.target[2]=Math.max(-edge,Math.min(edge,camera.target[2]));
   if(state.scene==='biomes')camera.target[1]=activeBiome.height(camera.target[0],camera.target[2])+1;
   else if(state.scene==='shore')camera.target[1]=Math.max(.5,watershed.height(camera.target[0],camera.target[2])+.70);
  };
  const release=e=>{pointers.delete(e.pointerId);gesture=snapshot();};canvas.onpointerup=release;canvas.onpointercancel=release;canvas.onlostpointercapture=release;window.addEventListener('blur',clearPointerState);canvas.addEventListener('wheel',e=>{e.preventDefault();if(flight)return;camera.distance=Math.max(3,Math.min(48,camera.distance*Math.exp(e.deltaY*.001)));},{passive:false});
- canvas.addEventListener('keydown',e=>{if(flight)return;if(e.key.startsWith('Arrow'))e.preventDefault();if(e.key==='ArrowLeft')camera.yaw+=.1;if(e.key==='ArrowRight')camera.yaw-=.1;if(e.key==='ArrowUp')camera.pitch=Math.min(1.4,camera.pitch+.1);if(e.key==='ArrowDown')camera.pitch=Math.max(skyView?-1.4:.07,camera.pitch-.1);});
+ canvas.addEventListener('keydown',e=>{
+  switch(e.key){
+   case 'ArrowLeft':adjustLook(.1,0);break;
+   case 'ArrowRight':adjustLook(-.1,0);break;
+   case 'ArrowUp':adjustLook(0,.1);break;
+   case 'ArrowDown':adjustLook(0,-.1);break;
+   default:return;
+  }
+  e.preventDefault();
+ });
  document.addEventListener('visibilitychange',()=>{clearPointerState();lastTime=0;lastFrame=0;statTime=performance.now();statFrames=0;$('state').textContent=document.hidden?'En pausa':'Local';});
  canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();state.ready=false;state.errors.push('WebGL context lost');cancelAnimationFrame(frameRequest);$('status').hidden=false;$('status').querySelector('h2').textContent='La GPU ha pausado el visor';$('load-status').textContent='El navegador ha liberado la escena. Puedes recargar para continuar.';$('status').querySelector('.loader').hidden=true;$('retry').hidden=false;$('state').textContent='Pausado';});
  canvas.addEventListener('webglcontextrestored',()=>location.reload());
