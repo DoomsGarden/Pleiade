@@ -6,7 +6,7 @@ import {channel,lakeBank,waterBase,channelWaterExtent,createWatershed,driftSampl
 import {plantContact} from '../dist/plant_contact.js';
 import {fly} from '../dist/flight.js';
 import {createRiverBridge} from '../dist/river_bridge.js';
-import {cloudTransmission} from '../dist/celestial.js';
+import {cloudTransmission,generateWorld} from '../dist/celestial.js';
 let id=0,boundFbo=null,activeUnit=0,currentProgram=null;const attachments=new Map(),textures=new Map(),buffers=new Map();let drawCalls=0;const uniformWrites=new Map();
 let boundVao,sceneSubmissions;
 const instanceBuffers=new WeakMap(), instanceData=new WeakMap();
@@ -251,8 +251,25 @@ for(const mode of ['river','falls']){
    assert(Math.abs(y-bed.height(x,z))<.07,'each approach meets the procedurally generated bank');
    assert(Math.abs(approach.grade)<.26,'approach remains gentle');
   }
+  const roman=createRiverBridge(mode,bed,geometry.meshIds,{style:'roman'});
+  assert(roman,`an arch site is available for ${mode}, seed ${seed}`);
+  assert.deepEqual(roman.center,bridge.center);
+  assert.deepEqual(roman.axis,bridge.axis);
+  assert(roman.clearance>0&&roman.designWater>=bridge.designWater);
+  assert.equal(roman.span,2*roman.arch.radius);
+  for(const {outer:[x,y,z],grade} of roman.approaches){
+   assert(Math.abs(y-bed.height(x,z))<.07,'each stone approach meets the bank');
+   assert(grade<=.24,'each stone approach stays within the grade limit');
+  }
+  assert(roman.meshes.length>0,'masonry includes a curved mesh');
+  for(const {id,vertices,indices} of roman.meshes){
+   assert(roman.objects.some(part=>part.mesh===id),'each generated mesh is instanced');
+   assert(vertices.length%8===0&&vertices.every(Number.isFinite));
+   assert(indices.length%3===0&&indices.every(i=>i<vertices.length/8));
+  }
  }
  pleiade.setWaterMode(mode);
+ assert.equal(el('bridge-controls').hidden,false);
  assert.equal(el('bridge-view').hidden,false);
  const bridge=createRiverBridge(mode,createWatershed(mode,pleiade.world.seed),geometry.meshIds);
  el('dive').onclick();assert(pleiade.state.underwater);
@@ -264,9 +281,31 @@ for(const mode of ['river','falls']){
   assert(bridge.objects.some(part=>part.instance[22]===material&&drawsPart(submitted,part,meshById.get(part.mesh).indices)),
    'both bridge materials go through the scene draw path');
  }
+ const selector=el('bridge-style');
+ selector.value='roman';selector.onchange();
+ const roman=createRiverBridge(mode,createWatershed(mode,pleiade.world.seed),geometry.meshIds,{style:'roman'});
+ assert.deepEqual(pleiade.camera.target,roman.focus);
+ const romanSubmissions=drawAt(roman.focus,10);
+ for(const mesh of roman.meshes){
+  assert(roman.objects.some(part=>part.mesh===mesh.id&&drawsPart(romanSubmissions,part,mesh.indices.length)),
+   'the curved masonry goes through the scene draw path');
+ }
+ assert.equal(pleiade.report().shore.bridge,'roman');
+ pleiade.useScene('building');
+ assert.equal(el('bridge-controls').hidden,true);
+ pleiade.setWaterMode(mode);
+ assert.equal(el('bridge-controls').hidden,false);
+ assert.equal(selector.value,'roman');
+ pleiade.setAtmosphere({altitude:6000,fov:8});
+ selector.value='timber';selector.onchange();
+ assert.equal(pleiade.report().shore.bridge,'timber');
+ assert.deepEqual(pleiade.camera.target,bridge.focus);
+ assert(pleiade.report().celestial.opticalFov>8,'focusing the bridge widens a narrow inspection lens');
+ pleiade.setAtmosphere();
 }
 pleiade.setWaterMode('lake');
 assert.equal(createRiverBridge('lake',createWatershed('lake',12345),geometry.meshIds),null);
+assert.equal(el('bridge-controls').hidden,true);
 assert.equal(el('bridge-view').hidden,true);
 el('water').checked=false;el('water').onchange();pleiade.render();
 assert.equal(uniformWrites.get('uShoreWaterMode'),-1,'hide-water mode disables the shore snow mask');
@@ -503,3 +542,20 @@ pleiade.useScene('shore');
 for(let i=0;i<24;i++)arrow('ArrowDown');
 assert.equal(pleiade.camera.pitch,.07,'the orbit camera keeps its ground-facing range');
 console.log('PASS: vertical camera axes, heading, flight handoff and panning at nadir.');
+
+// A turn at nadir keeps the eye and forward vector fixed, but rotates the frustum.
+Object.assign(globalThis,{innerWidth:700,innerHeight:292,devicePixelRatio:1});
+pleiade.setWaterMode('lake');
+pleiade.applyWorld(generateWorld(12345));
+pleiade.setQuality('eco');
+pleiade.setAtmosphere({altitude:46,fov:40});
+Object.assign(pleiade.camera,{target:[3,0,2],pitch:0,yaw:0});
+for(let i=0;i<16;i++)arrow('ArrowDown');
+pleiade.render();
+const beforeTurn=pleiade.report().render.trianglesPerPass;
+for(let i=0;i<16;i++)arrow('ArrowLeft');
+pleiade.render();
+const afterTurn=pleiade.report().render.trianglesPerPass;
+assert.notEqual(afterTurn,beforeTurn,'turning at nadir refreshes visibility');
+pleiade.setQuality('eco');pleiade.render();
+assert.equal(afterTurn,pleiade.report().render.trianglesPerPass,'the rotated view matches a full visibility refresh');

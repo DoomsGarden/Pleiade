@@ -4,9 +4,9 @@ import {createWatershed,waterModes,driftSamples,channel,lakeBank,waterBase,chann
 import {climateAt,seasons,weatherModes} from './climate.js';
 import {moveDetached,plantContact} from './plant_contact.js';
 import {ceiling,flightLimits,fly} from './flight.js';
-import {createRiverBridge} from './river_bridge.js?v=0.000.00.028';
+import {createRiverBridge} from './river_bridge.js?v=0.000.00.030';
 const $=id=>document.getElementById(id), canvas=$('view');
-const VERSION='0.000.00.029';
+const VERSION='0.000.00.030';
 const polePitch=Math.PI/2;
 const params=new URLSearchParams(location.search);
 const state={ready:false,scene:'shore',biome:'forest',waterMode:'lake',underwater:false,buildingForm:'cabin',season:'summer',weather:'clear',quality:window.PleiadeAndroid?'eco':'balanced',materials:true,shadows:true,shadowSoft:true,water:true,ssr:false,contact:false,animation:true,waveStrength:.35,time:0,waveTime:0,frames:0,errors:[],fps:0,hdr:false,paused:false};
@@ -37,10 +37,11 @@ const flightCommands=['forward','back','left','right','rise','sink'];
 let flight=null,gesture=null;
 let camera={target:[-1,0,-2],yaw:.8,pitch:.32,distance:15};
 let activeBiome, drawAnchor, layoutRevision=0, drawnRevision=-1, drawnSignature=0, submittedTriangles=0, needleBundles=0, foliageBundles=0;
-let watershed,shoreObjects,shoreBridge,waterFbo,waterDepth,glassGroup;
+let watershed,shoreBaseObjects,shoreObjects,shoreBridge,bridgeStyle='timber',waterFbo,waterDepth,glassGroup;
 let climate=climateAt('summer','clear',0),leafStep=16,detached=null,lastDetachedAge=0,shadowWindStep=-1;
 const buildingNames={cabin:'La cabaña',stone:'El refugio de piedra',shelter:'El pabellón de madera',house:'La casa de teja'};
 const shoreNames={lake:'La orilla',river:'El río',falls:'La cascada'};
+const bridgeStyles=['timber','roman'];
 const limits={eco:{size:640,shadow:512,mid:30000,near:9000},balanced:{size:960,shadow:1024,mid:36000,near:54000},detail:{size:1280,shadow:2048,mid:41000,near:150000}};
 let lightVP=math.mul(math.ortho(-32,32,-32,32,.1,180),math.look([-45,75,45],[0,0,0]));
 function toast(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,3500);}
@@ -89,9 +90,15 @@ async function loadMesh(item){
  }
  if(item.id===0)makeMesh({...item,id:'glass'},vertices,indices,sceneData.vertexStride??24);
 }
-function replaceMesh(id,data){
+function deleteMesh(id){
  const old=meshes.get(id);
- if(old){gl.deleteVertexArray(old.vao);for(const b of [old.vertex,old.index,old.instances])gl.deleteBuffer(b);}
+ if(!old)return;
+ gl.deleteVertexArray(old.vao);
+ for(const buffer of [old.vertex,old.index,old.instances])gl.deleteBuffer(buffer);
+ meshes.delete(id);
+}
+function replaceMesh(id,data){
+ deleteMesh(id);
  makeMesh({id,indices:data.indices.length},data.vertices,data.indices,32);
 }
 function addWoodLOD(meshId,id,tipRadius){
@@ -132,7 +139,7 @@ function regenerateShore(){
  watershed=createWatershed(state.waterMode,world.seed);
  replaceMesh('shore-land',watershed.land);replaceMesh('shore-water',watershed.water);
  const terrain=[...sceneData.shore[0].instance];
- shoreObjects=[{mesh:'shore-land',instance:terrain}];
+ shoreBaseObjects=[{mesh:'shore-land',instance:terrain}];
  const zStart=state.waterMode==='falls'?8:0;
  let dy=0,dx=0,dz=0;
  for(const part of sceneData.shore.slice(1)){
@@ -146,16 +153,32 @@ function regenerateShore(){
    dy=watershed.height(x+dx,z+dz)-oldGround;
   }
   pose[12]+=dx;pose[13]=y+dy;pose[14]+=dz;
-  shoreObjects.push({...part,instance:pose});
+  shoreBaseObjects.push({...part,instance:pose});
  }
+ regenerateBridge();
+}
+function addShorePlants(){
  const bank=[[-19,1],[-27,-1],[-32,1],[-38,-1],[13,1],[21,1],[29,1],[35,-1]];
- for(const [i,[z,side]] of bank.entries()){
-  const x=state.waterMode==='lake'?6+2.6*Math.sin(i*2.4):
+ for(const [i,[station,side]] of bank.entries()){
+  const bankX=z=>state.waterMode==='lake'?6+2.6*Math.sin(i*2.4):
    channel(z)+side*(channelWaterExtent(z,state.waterMode)+1.58+1.9*Math.sin(i*2.2));
+  let z=station,x=bankX(z);
+  if(shoreBridge?.footprint){
+   const [ax,az]=shoreBridge.axis,[cx,cz]=shoreBridge.center;
+   const u=(x-cx)*ax+(z-cz)*az,v=-(x-cx)*az+(z-cz)*ax;
+   const {minU,maxU,halfWidth}=shoreBridge.footprint;
+   if(u>=minU&&u<=maxU&&Math.abs(v)<halfWidth+2.5){
+    // The crown needs room beside the masonry and the trunk stays on the bank.
+    z+=(v<0?-1:1)*2.4;
+    x=bankX(z);
+   }
+  }
   const kind=['birch2','spruce2','pine2'][i%3];
   const size=4.6+2.4*Math.sin((i+1)*.55)**2;
   copyPrototype(shoreObjects,sceneData.plants[kind],x,watershed.height(x,z)-.055,z,size,i*2.4,.88);
  }
+}
+function addShoreRocks(){
  // Two partly submerged rocks provide a visible reference for the current.
  if(state.waterMode!=='lake'){
   const rocks=sceneData.meshIds.rock;
@@ -166,9 +189,22 @@ function regenerateShore(){
    shoreObjects.push({mesh:rocks,instance:[size,0,0,0,0,sy,0,0,0,0,size*.91,0,x,y,z,1,.42,.43,.40,1,.86,0,9,0]});
   }
  }
- shoreBridge=createRiverBridge(state.waterMode,watershed,sceneData.meshIds);
- if(shoreBridge)shoreObjects.push(...shoreBridge.objects);
+}
+function syncBridgeControls(){
+ $('bridge-controls').hidden=state.scene!=='shore'||state.waterMode==='lake';
+ $('bridge-style').value=bridgeStyle;
+ $('bridge-view').hidden=state.scene!=='shore'||!shoreBridge;
+}
+function regenerateBridge(){
+ for(const mesh of shoreBridge?.meshes??[])deleteMesh(mesh.id);
+ shoreBridge=createRiverBridge(state.waterMode,watershed,sceneData.meshIds,{style:bridgeStyle});
+ for(const mesh of shoreBridge?.meshes??[])makeMesh({id:mesh.id,indices:mesh.indices.length},mesh.vertices,mesh.indices,32);
+ shoreObjects=[...shoreBaseObjects];
+ addShorePlants();
+ addShoreRocks();
  waterContacts=collectWaterContacts(state.waterMode,shoreObjects,new Set(sceneData.meshes.filter(m=>m.id===sceneData.meshIds.rock||m.name==='RockDetail').map(m=>m.id)));
+ if(shoreBridge)shoreObjects.push(...shoreBridge.objects);
+ syncBridgeControls();
  layoutRevision++;drawAnchor=null;shadowDirty=true;
 }
 function regenerateBiome(){
@@ -192,8 +228,9 @@ function uploadSceneMeshes({eye,forward,right,up}){
  const tall=canvas.height/(2*focal),wide=canvas.width/(2*focal);
  const age=detached?Math.min(1.9,state.time-detached.time):0;
  if(detached&&age!==lastDetachedAge){drawAnchor=null;layoutRevision++;lastDetachedAge=age;}
- if(drawAnchor&&math.dot(forward,drawAnchor.forward)>.998&&Math.hypot(...math.sub(eye,drawAnchor.eye))<.22&&focal===drawAnchor.focal&&wide===drawAnchor.wide)return;
- drawAnchor={eye,forward,focal,wide};
+ if(drawAnchor&&math.dot(forward,drawAnchor.forward)>.998&&math.dot(right,drawAnchor.right)>.998&&
+    Math.hypot(...math.sub(eye,drawAnchor.eye))<.22&&focal===drawAnchor.focal&&wide===drawAnchor.wide)return;
+ drawAnchor={eye,forward,right,focal,wide};
  const source=state.scene==='biomes'?activeBiome.objects:state.scene==='shore'?shoreObjects:
   state.scene==='building'?(sceneData.buildingForms[state.buildingForm]??sceneData.building):
   sceneData.shore;
@@ -306,7 +343,7 @@ function useScene(name){
  $('scene-title').textContent=title;$('scene-description').textContent=description;
  $('biome-control').hidden=name!=='biomes';
  $('shore-control').hidden=name!=='shore';$('building-control').hidden=name!=='building';
- $('bridge-view').hidden=name!=='shore'||!shoreBridge;
+ syncBridgeControls();
  $('impact-actions').hidden=name!=='materials';
  if(name!=='materials')detached=null;
  document.querySelectorAll('[data-scene]').forEach(button=>{let active=button.dataset.scene===name;button.classList.toggle('active',active);button.setAttribute('aria-pressed',active);});
@@ -355,7 +392,13 @@ function focusRiverBridge(){
  skyView=false;
  state.underwater=false;
  $('dive').textContent='Mirar bajo el agua';
- const distance=Math.min(48,Math.max(23,18*canvas.height/canvas.width));
+ const aspect=canvas.width/canvas.height;
+ const distance=Math.min(48,Math.max(23,18/aspect));
+ const minimumFov=Math.ceil(360/Math.PI*Math.atan(.68*shoreBridge.span/(distance*Math.min(1,aspect))));
+ if(opticalFov<minimumFov){
+  opticalFov=Math.min(75,minimumFov);
+  $('optical-fov').value=opticalFov;
+ }
  camera={target:[...shoreBridge.focus],yaw:2.73,pitch:.48,distance};
 }
 function clearFlightInputs(){flightKeys.clear();flightButtons.clear();}
@@ -568,7 +611,7 @@ function download(blob,name){
  setTimeout(()=>URL.revokeObjectURL(url),30000);
  toast('Descarga solicitada: '+name);
 }
-function report(){return {viewer:VERSION,desktopBase:'0.003.0.17',browser:navigator.userAgent,screen:{width:innerWidth,height:innerHeight,dpr:devicePixelRatio},render:{width:canvas.width,height:canvas.height,shadow:shadowSize,shadowDepthMiB:shadowSize*shadowSize*4/1048576,trianglesPerPass:submittedTriangles,needleBundles,foliageBundles,shadowFilter:state.shadowSoft?'continuous-tent-9':'box-9',hdr:state.hdr},settings:{...state},glassPanes:glassGroup?.instances??0,shore:state.scene==='shore'?{mode:state.waterMode,width:watershed.area,contacts:waterContacts.length/3}:null,climate:{...climate},detached:detached?.pieces.size??0,biome:state.scene==='biomes'?{seed:world.seed,plants:activeBiome.plants,rocks:activeBiome.rocks,trees:activeBiome.trees,understory:activeBiome.understory,tiles:activeBiome.terrain.pieces.length,vines:activeBiome.vines}:null,celestial:{seed:world.seed,elapsedDays:world.elapsedDays,daySeconds:world.daySeconds,running:skyRunning,cloudAmount,flightAltitude,opticalFov,turbidity},camera,flight:flight?{eye:[...flight.eye],yaw:flight.yaw,pitch:flight.pitch,depthRange:flightLimits(flight.eye[1])}:null,capabilities:{webgl:gl?gl.getParameter(gl.VERSION):null,maxTextureSize:gl?gl.getParameter(gl.MAX_TEXTURE_SIZE):null},cloudCache:{enabled:cloudReuse,width:cloudWidth,height:cloudWidth/2,updates:cloudBuilds,estimatedMiB:cloudWidth*cloudWidth/2*(state.hdr?8:4)/1048576},memoryPolicy:{budgetMiB:4096,kind:'design ceiling, not measured browser allocation'},note:'FPS de presentación del navegador; no es tiempo GPU ni un benchmark de la RTX.'};}
+function report(){return {viewer:VERSION,desktopBase:'0.003.0.17',browser:navigator.userAgent,screen:{width:innerWidth,height:innerHeight,dpr:devicePixelRatio},render:{width:canvas.width,height:canvas.height,shadow:shadowSize,shadowDepthMiB:shadowSize*shadowSize*4/1048576,trianglesPerPass:submittedTriangles,needleBundles,foliageBundles,shadowFilter:state.shadowSoft?'continuous-tent-9':'box-9',hdr:state.hdr},settings:{...state},glassPanes:glassGroup?.instances??0,shore:state.scene==='shore'?{mode:state.waterMode,width:watershed.area,contacts:waterContacts.length/3,bridge:shoreBridge?bridgeStyle:null}:null,climate:{...climate},detached:detached?.pieces.size??0,biome:state.scene==='biomes'?{seed:world.seed,plants:activeBiome.plants,rocks:activeBiome.rocks,trees:activeBiome.trees,understory:activeBiome.understory,tiles:activeBiome.terrain.pieces.length,vines:activeBiome.vines}:null,celestial:{seed:world.seed,elapsedDays:world.elapsedDays,daySeconds:world.daySeconds,running:skyRunning,cloudAmount,flightAltitude,opticalFov,turbidity},camera,flight:flight?{eye:[...flight.eye],yaw:flight.yaw,pitch:flight.pitch,depthRange:flightLimits(flight.eye[1])}:null,capabilities:{webgl:gl?gl.getParameter(gl.VERSION):null,maxTextureSize:gl?gl.getParameter(gl.MAX_TEXTURE_SIZE):null},cloudCache:{enabled:cloudReuse,width:cloudWidth,height:cloudWidth/2,updates:cloudBuilds,estimatedMiB:cloudWidth*cloudWidth/2*(state.hdr?8:4)/1048576},memoryPolicy:{budgetMiB:4096,kind:'design ceiling, not measured browser allocation'},note:'FPS de presentación del navegador; no es tiempo GPU ni un benchmark de la RTX.'};}
 function adjustLook(yawDelta,pitchDelta){
  const view=flight||camera;
  const atmospheric=flight!==null||skyView;
@@ -620,6 +663,14 @@ function setupUI(){
 
  const panel=open=>{if(open)clearFlightInputs();$('panel').hidden=!open;$('settings').setAttribute('aria-expanded',open);};$('settings').onclick=()=>panel($('panel').hidden);$('close-panel').onclick=()=>panel(false);
  $('bridge-view').onclick=focusRiverBridge;
+ $('bridge-style').onchange=()=>{
+  const style=$('bridge-style').value;
+  if(!state.ready||state.scene!=='shore'||state.waterMode==='lake'||!bridgeStyles.includes(style)||style===bridgeStyle)return;
+  bridgeStyle=style;
+  regenerateBridge();
+  if(shoreBridge)focusRiverBridge();
+  else toast('Este diseño necesita un tramo de cauce con orillas más altas.');
+ };
  $('reset').onclick=resetCamera;$('plus').onclick=()=>camera.distance=Math.max(3,camera.distance*.83);$('minus').onclick=()=>camera.distance=Math.min(48,camera.distance*1.2);$('height').onclick=()=>{camera.pitch=camera.pitch>.65?.28:.95;camera.distance=camera.pitch>.65?28:15;};
  document.querySelectorAll('[data-scene]').forEach(b=>b.onclick=()=>{if(state.ready)useScene(b.dataset.scene);});
  for(const name of ['materials','shadows','shadowSoft','water','ssr','contact','animation'])$(name).onchange=()=>{state[name]=$(name).checked;};

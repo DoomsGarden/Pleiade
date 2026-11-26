@@ -1,3 +1,10 @@
+# Versión de prueba 0.000.00.030 — puente romano
+
+- Río y Cascada permiten alternar entre la pasarela de madera y un puente de piedra de arco semicircular. Los estribos se apoyan fuera del cauce y los accesos siguen el relieve de la semilla. La prueba de recorrido con colisiones queda pendiente.
+- En una vista cenital, girar la cámara actualiza la selección de geometría visible aunque el ojo siga apuntando verticalmente. **Ver cruce** amplía el campo de visión cuando el zoom de inspección podía recortar el vano.
+
+---
+
 # Versión de prueba 0.000.00.029 — encuadres verticales en vuelo e inspección
 
 - La cámara de inspección y la de vuelo permiten mirar exactamente hacia arriba o hacia abajo. La orientación conserva el rumbo al alcanzar la vertical y al alternar entre ambas cámaras.
