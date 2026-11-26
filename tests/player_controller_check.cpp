@@ -101,6 +101,60 @@ void terrain() {
     require(!player.spawn({-1, 0, 0}, boundary), "reject spawn outside the domain");
     expectNear(length(atBoundary - player.position()), 0, "invalid spawn preserves position");
 }
+
+void solidContacts() {
+    const std::vector<WalkSolid> gate{
+        {{-1.27f, 1.05f, 0}, {.35f, 1.05f, .38f}},
+        {{1.27f, 1.05f, 0}, {.35f, 1.05f, .38f}},
+        {{0, 2.30f, 0}, {1.62f, .20f, .38f}},
+    };
+    PlayerController player;
+    require(player.spawn({0, 1.7f, -1.5f}, flat, gate), "spawn in front of the gate");
+    for (int i = 0; i < 50; ++i)
+        player.step({0, 1}, 0, flat, gate);
+    require(player.position().z > 1.2f && player.grounded(), "standing height fits beneath the lintel");
+    for (int i = 0; i < 50; ++i)
+        player.step({0, -1}, 0, flat, gate);
+    expectNear(player.position().z, -1.5f, "the doorway is traversable in both directions");
+
+    require(player.spawn({1.27f, 1.7f, -1.5f}, flat, gate), "spawn in front of a pillar");
+    for (int i = 0; i < 50; ++i)
+        player.step({0, 1, true}, 0, flat, gate);
+    require(player.position().z <= -.64f && player.position().z >= -.80f,
+            "the same scene blocks the body beside the doorway");
+    require(!player.spawn({1.27f, 1.7f, 0}, flat, gate), "spawn inside a pillar is rejected");
+    require(player.position().z <= -.64f, "a blocked spawn keeps the previous feet");
+
+    require(player.spawn({0, 1.7f, 0}, flat, gate), "spawn beneath the lintel");
+    float peak = 0;
+    for (int i = 0; i < 60; ++i) {
+        player.step({0, 0, false, i == 0}, 0, flat, gate);
+        peak = std::max(peak, player.position().y);
+    }
+    expectNear(peak, .2f, "the head contacts the underside rather than jumping through it");
+    require(player.grounded(), "the player falls back to the lower floor after an upward collision");
+
+    const std::vector<WalkSolid> step{{{0, .08f, 0}, {.8f, .08f, .55f}}};
+    require(player.spawn({0, 1.7f, -1.4f}, flat, step), "spawn at a low step");
+    for (int i = 0; i < 19; ++i)
+        player.step({0, 1}, 0, flat, step);
+    require(player.grounded() && player.position().z > -.55f, "the low solid has a traversable tread");
+    expectNear(player.position().y, .16f, "standing on top of the box");
+
+    const std::vector<WalkSolid> platform{{{0, .57f, 0}, {.8f, .10f, .55f}}};
+    require(player.spawn({0, 1.7f, -1.5f}, flat, platform), "spawn clear of a raised platform");
+    for (int i = 0; i < 56; ++i)
+        player.step({0, i < 25 ? 1.f : 0.f, false, i == 0}, 0, flat, platform);
+    require(player.grounded(), "a descending jump can land on the raised surface");
+    expectNear(player.position().y, .67f, "platform support is selected at the player's height");
+
+    const auto slope = [](float, float z) { return -.5f * z; };
+    const std::vector<WalkSolid> slopedGate{{{0, 1.0375f, 2.4f}, {1.f, .1f, .2f}}};
+    require(player.spawn({}, slope, slopedGate), "spawn on a walkable slope");
+    for (int i = 0; i < 56; ++i)
+        player.step({0, 1}, 0, slope, slopedGate);
+    expectNear(player.position().z, 3.36f, "descent under a lintel follows the slope during the sweep");
+}
 } // namespace
 
 int main() {
@@ -108,7 +162,8 @@ int main() {
         movement();
         jumping();
         terrain();
-        std::cout << "PASS: fixed-step movement, jump, ramp, ledge and terrain boundary\n";
+        solidContacts();
+        std::cout << "PASS: fixed-step movement, terrain, pillars, head clearance and elevated platforms\n";
         return 0;
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';

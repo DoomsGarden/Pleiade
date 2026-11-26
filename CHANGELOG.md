@@ -1,3 +1,9 @@
+# Candidato 0.000.00.032 — colisiones del patio en primera persona
+
+- El recorrido nativo `--walk-demo` distingue el suelo, los peldaños, los pilares y la cara inferior del dintel. Puedes pasar por el vano a pie, golpear el dintel si saltas debajo y aterrizar sobre una plataforma.
+
+---
+
 # Versión de prueba 0.000.00.031 — nieve, tiempo e inspección
 
 - La nieve sigue la pendiente del suelo y conserva la transición húmeda junto al agua. La textura cambia el espesor aparente de forma suave.

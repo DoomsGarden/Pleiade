@@ -99,7 +99,7 @@ La base C++ incluye tres recorridos de prueba. Los controles del patio siguen el
 
 | Recorrido | Inicio y controles |
 | --- | --- |
-| Primera persona | `./build/pleiade --walk-demo`. WASD para caminar, Mayús para correr, Espacio para saltar, botón derecho para mirar y Tab para alternar la cámara. El patio incluye colisiones con bloques. |
+| Primera persona | `./build/pleiade --walk-demo`. WASD para caminar, Mayús para correr, Espacio para saltar, botón derecho para mirar y Tab para alternar la cámara. Desde la entrada, avanza con W hasta el dintel bajo. El vano deja pasar al jugador a pie y el dintel frena un salto desde debajo. |
 | Estrategia | `./build/pleiade --fow-demo`. En el candidato `0.000.00.020`, haz clic en un explorador y usa Mayús+clic para añadir otros. Haz clic sobre terreno accesible para ordenar el desplazamiento. El minimapa distingue los exploradores seleccionados. |
 | Cinemática | `./build/pleiade --water-demo --asset-dir build/materials --cinematic --no-hud`. La secuencia reproduce dos tomas en el renderer. Con `--cinematic-time 6.8` puedes saltar al corte. Al usar `--frames`, el tiempo avanza a pasos fijos de 1/60 s. |
 

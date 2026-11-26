@@ -580,6 +580,19 @@ int run(int argc, char **argv) {
     Scene scene(o.stress, !o.world && !o.shore);
     if (o.shore)
         scene = makeShoreScene();
+    std::vector<WalkSolid> walkSolids;
+    if (o.walkDemo && !o.world && !o.shore) {
+        // Low courtyard passage for standing clearance and jump contact.
+        constexpr float bottom = .08f, lintel = 2.13f;
+        constexpr V3 stone{.61f, .55f, .46f};
+        for (float side : {-1.f, 1.f})
+            scene.add(MeshType::Cube, {side * 1.25f, (bottom + lintel) * .5f, 12.f},
+                      {.70f, lintel - bottom, .75f}, stone);
+        scene.add(MeshType::Cube, {0, lintel + .20f, 12.f}, {3.2f, .40f, .75f}, stone);
+        for (const auto &object : scene.objects)
+            if (object.mesh == MeshType::Cube)
+                walkSolids.push_back({object.center, object.half});
+    }
     std::unique_ptr<ProceduralWorld> world;
     if (o.world)
         world = std::make_unique<ProceduralWorld>(uint32_t(o.seed), o.worldRadius, o.reference);
@@ -619,16 +632,7 @@ int run(int argc, char **argv) {
                        : invalid;
         if (std::abs(x) > 90 - radius || std::abs(z) > 90 - radius)
             return invalid;
-        constexpr float yardLevel = -.15f;
-        float surface = yardLevel;
-        for (const auto &object : scene.objects) {
-            if (object.mesh != MeshType::Cube || object.center.y - object.half.y > yardLevel + 1.9f ||
-                std::abs(x - object.center.x) > object.half.x + radius ||
-                std::abs(z - object.center.z) > object.half.z + radius)
-                continue;
-            surface = std::max(surface, object.center.y + object.half.y);
-        }
-        return surface;
+        return -.15f;
     };
     if (o.walkDemo) {
         if (!o.world && !o.shore) {
@@ -636,7 +640,7 @@ int run(int argc, char **argv) {
             camera.face({0, 1.f, -1});
             camera.pitch = -.05f;
         }
-        if (!player.spawn(camera.pos, walkGround))
+        if (!player.spawn(camera.pos, walkGround, walkSolids))
             throw std::runtime_error("The player spawn is outside the walkable surface");
         camera.pos = player.eye();
     }
@@ -859,7 +863,7 @@ int run(int argc, char **argv) {
             if (o.walkDemo && !camera.strategy) {
                 for (int i = 0; i < simSteps; ++i) {
                     player.step({right, forward, keys[SDL_SCANCODE_LSHIFT] != 0, jumpQueued},
-                                camera.yaw, walkGround);
+                                camera.yaw, walkGround, walkSolids);
                     jumpQueued = false;
                 }
                 camera.pos = player.eye(float((simulation.renderTime() - simulation.time()) / FixedSimulation::step));
