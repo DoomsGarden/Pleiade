@@ -44,8 +44,10 @@ vec3 pointStars(vec3 q){
 }
 float cloudDensity(vec3 p,float base,float top){
  float height=(p.y-base)/(top-base);if(height<=0.0||height>=1.0)return 0.0;
- vec3 q=p*.0012+vec3(uCloudTime*.0008,0,uCloudTime*.0003);
- float shape=skyNoise(q)*.70+skyNoise(q*2.7)*.30;
+ vec3 wind=base<2000.0?vec3(.006,0.0,.0025):vec3(.009,0.0,-.002);
+ vec3 q=p*.0012+wind*uCloudTime;
+ vec3 detail=q*2.7+vec3(.002,.005,-.005)*uCloudTime;
+ float shape=skyNoise(q)*.70+skyNoise(detail)*.30;
  return smoothstep(1.0-uCloudAmount*.70,1.0-uCloudAmount*.70+.17,shape)*smoothstep(0.0,.18,height)*(1.0-smoothstep(.65,1.0,height));
 }
 const float cloudReach=6000.0;

@@ -1,12 +1,12 @@
-import {generateWorld,validateWorld,celestialFrame,starAtlas,cloudTransmission,angularRadiusBounds} from './celestial.js';
+import {generateWorld,validateWorld,celestialFrame,starAtlas,cloudTransmission,angularRadiusBounds} from './celestial.js?v=0.000.00.031';
 import {biomes,createBiome,copyPrototype} from './biomes.js?v=0.000.00.022';
 import {createWatershed,waterModes,driftSamples,channel,lakeBank,waterBase,channelWaterExtent,channelRockFooting} from './watershed.js?v=0.000.00.027';
-import {climateAt,seasons,weatherModes} from './climate.js';
+import {climateAt,seasons,weatherModes} from './climate.js?v=0.000.00.031';
 import {moveDetached,plantContact} from './plant_contact.js';
-import {ceiling,flightLimits,fly} from './flight.js';
+import {ceiling,flightClearance,flightLimits,fly} from './flight.js?v=0.000.00.031';
 import {createRiverBridge} from './river_bridge.js?v=0.000.00.030';
 const $=id=>document.getElementById(id), canvas=$('view');
-const VERSION='0.000.00.030';
+const VERSION='0.000.00.031';
 const polePitch=Math.PI/2;
 const params=new URLSearchParams(location.search);
 const state={ready:false,scene:'shore',biome:'forest',waterMode:'lake',underwater:false,buildingForm:'cabin',season:'summer',weather:'clear',quality:window.PleiadeAndroid?'eco':'balanced',materials:true,shadows:true,shadowSoft:true,water:true,ssr:false,contact:false,animation:true,waveStrength:.35,time:0,waveTime:0,frames:0,errors:[],fps:0,hdr:false,paused:false};
@@ -360,6 +360,10 @@ function setBuildingForm(form){
 }
 function setClimate(season,weather){
  if(!seasons.includes(season)||!weatherModes.includes(weather))return;
+ if(weather!=='clear'&&state.weather!==weather&&cloudAmount<=.40){
+  cloudAmount=.70;
+  $('clouds').value=cloudAmount;
+ }
  state.season=season;state.weather=weather;$('season').value=season;$('weather').value=weather;
 }
 function impact(point,impulse){
@@ -476,7 +480,10 @@ function cameraFrame(){
   return projectedFrame(eye,math.look(eye,target));
  }
  if(skyView){
-  const eye=[camera.target[0],flightAltitude,camera.target[2]];
+  const [x,,z]=camera.target;
+  const eye=[x,Math.max(flightAltitude,surfaceAt(x,z)+flightClearance),z];
+  const label=Math.round(eye[1]*10)/10+' m';
+  if($('altitude-label').textContent!==label)$('altitude-label').textContent=label;
   return atmosphericFrame(eye,camera.yaw,camera.pitch);
  }
  const cp=Math.cos(camera.pitch);
@@ -509,11 +516,16 @@ function drawGlass(c){
  drawGroup(glassGroup);gl.disable(gl.BLEND);gl.disable(gl.CULL_FACE);
 }
 function drawWeather(c){
+ if(state.underwater)return;
+ const aboveGround=skyView||flight?c.eye[1]-surfaceAt(c.eye[0],c.eye[2]):0;
+ const proximity=Math.min(1,Math.max(0,(60-aboveGround)/35));
+ if(proximity===0)return;
  const kinds=[];
- if(state.weather==='rain')kinds.push([1,146]);
- if(state.weather==='snow')kinds.push([2,118]);
+ const rate=climate.precipitation;
+ const count=Math.round((state.weather==='rain'?146:118)*rate*proximity);
+ if(count>0)kinds.push([state.weather==='rain'?1:2,count]);
  if(climate.fall&&state.scene!=='building'&&!(state.scene==='biomes'&&state.biome!=='forest'))kinds.push([3,39]);
- if(!kinds.length||skyView||(flight&&c.eye[1]-surfaceAt(c.eye[0],c.eye[2])>60))return;
+ if(!kinds.length)return;
  const p=programs.weather;gl.useProgram(p.id);um(p,'uVP',c.vp);uv(p,'uCameraEye',c.eye);
  uf(p,'uTime',state.time);uf(p,'uWind',climate.wind);uf(p,'uScreenHeight',canvas.height);
  const origin=state.scene==='biomes'?[camera.target[0],camera.target[1],camera.target[2]]:
@@ -532,11 +544,11 @@ const radiusLabel=(id,degrees)=>{$(id+'-label').textContent=degrees.toFixed(2)+'
 function syncRadiusUI(){
  for(const [id,key] of radiusControls){$(id).value=world[key];radiusLabel(id,world[key]);}
 }
-function applyWorld(w){world=validateWorld(w);if(state.scene==='biomes')regenerateBiome();if(watershed)regenerateShore();uploadStars();shadowDirty=true;syncSkyUI();syncRadiusUI();saveWorld();}
+function applyWorld(w){world=validateWorld(w);if(state.scene==='biomes')regenerateBiome();if(watershed)regenerateShore();uploadStars();cloudKey='';shadowDirty=true;syncSkyUI();syncRadiusUI();saveWorld();}
 function skyUniforms(p,c,observer=c.eye){
  uf(p,'uSkyPixelAngle',2*Math.tan(opticalFov*Math.PI/360)/canvas.height);
  uf(p,'uWorldSeed',world.seed%65536);uf(p,'uCloudAmount',cloudAmount);
- uf(p,'uCloudTime',world.elapsedDays*world.daySeconds);uv(p,'uSkyObserver',observer);
+ uf(p,'uCloudTime',state.time);uv(p,'uSkyObserver',observer);
  uv(p,'uSunDirection',skyFrame.sun);uv(p,'uMoonDirection',skyFrame.moon);
  uf(p,'uSunRadius',world.starRadiusDegrees*Math.PI/180);uf(p,'uMoonRadius',world.satelliteRadiusDegrees*Math.PI/180);
  uv(p,'uLightColor',surfaceLightColor);uf(p,'uSkyAmbient',surfaceAmbient);
@@ -552,7 +564,9 @@ function updateCloudCache(c){
  // A flown camera can move every frame. Snap the panorama origin while keeping the scene camera continuous.
  const cell=[4,12,4];
  const observer=flight?c.eye.map((position,i)=>Math.round(position/cell[i])*cell[i]):c.eye;
- const key=JSON.stringify([world.seed,world.moonPhase,world.moonPeriod,world.latitude,cloudAmount,world.daySeconds,Math.floor(world.elapsedDays*world.daySeconds*4)]);
+ // A running sky uses the same four updates per second as weather animation.
+ const skyTime=skyRunning&&!state.paused?null:Math.floor(world.elapsedDays*world.daySeconds*4);
+ const key=JSON.stringify([world.seed,world.moonPhase,world.moonPeriod,world.latitude,cloudAmount,world.daySeconds,skyTime,Math.floor(state.time*4)]);
  if(key===cloudKey){
   if(observer.every((value,i)=>value===cloudOrigin[i]))return;
   if(flight&&state.time-cloudBuiltAt<.12)return;
@@ -561,13 +575,16 @@ function updateCloudCache(c){
  bind(visibilityTexture,13);gl.bindFramebuffer(gl.FRAMEBUFFER,cloudFbo);gl.viewport(0,0,width,width/2);gl.disable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);gl.disable(gl.BLEND);gl.useProgram(programs.cloud.id);skyUniforms(programs.cloud,c,observer);gl.bindVertexArray(emptyVAO);gl.drawArrays(gl.TRIANGLES,0,3);cloudKey=key;cloudOrigin=observer;cloudBuiltAt=state.time;cloudBuilds++;
 }
 function render(){if(!state.ready||gl.isContextLost())return;
- climate=climateAt(state.season,state.weather,world.elapsedDays);
+ const previousWind=climate.wind;
+ climate=climateAt(state.season,state.weather,world.elapsedDays,cloudAmount);
+ const precipitation=Math.round(climate.precipitation*100)+' %';
+ if($('precipitation-label').textContent!==precipitation)$('precipitation-label').textContent=precipitation;
  const density=Math.round(climate.leaves*16);
  if(density!==leafStep){leafStep=density;drawAnchor=null;layoutRevision++;}
  const windStep=Math.floor(state.time*3);
- if(state.weather!=='clear'&&windStep!==shadowWindStep){shadowWindStep=windStep;shadowDirty=true;}
+ if(climate.wind!==previousWind||(climate.precipitation>0&&windStep!==shadowWindStep)){shadowWindStep=windStep;shadowDirty=true;}
  resize();skyFrame=celestialFrame(world);
- const groundTransmission=cloudTransmission(world,skyFrame.light,cloudAmount);
+ const groundTransmission=cloudTransmission(world,skyFrame.light,cloudAmount,undefined,state.time);
  surfaceLightColor=skyFrame.lightColor.map(x=>x*groundTransmission);
  surfaceAmbient=skyFrame.ambient*(.5+.5*groundTransmission);
  const range=state.scene==='biomes'?64:state.scene==='building'?12:32;
@@ -653,7 +670,7 @@ function setupUI(){
  $('optical-fov').oninput=()=>{opticalFov=Number($('optical-fov').value);};
  $('look-sky').onclick=()=>{endFlight();skyView=!skyView;camera.pitch=.45;};
  $('sky-run').onchange=()=>{skyRunning=$('sky-run').checked;saveWorld();};
- $('sky-hour').oninput=()=>{world.elapsedDays=Math.floor(world.elapsedDays)+Number($('sky-hour').value)/24;shadowDirty=true;syncSkyUI();saveWorld();};
+ $('sky-hour').oninput=()=>{world.elapsedDays=Math.floor(world.elapsedDays)+Number($('sky-hour').value)/24;cloudKey='';shadowDirty=true;syncSkyUI();saveWorld();};
  $('new-world').onclick=()=>{const seed=Number($('world-seed').value);if(!Number.isInteger(seed)||seed<0||seed>4294967295){toast('Usa una semilla entera entre 0 y 4294967295.');return;}saveWorld();applyWorld(generateWorld(seed));toast('Cielo generado. Exporta cada mundo que quieras conservar.');};
  $('export-world').onclick=()=>download(new Blob([JSON.stringify(world)],{type:'application/json'}),'Pleiade-mundo-'+world.seed+'.json');
  const worldPicker=$('import-world');

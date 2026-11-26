@@ -1,3 +1,11 @@
+# Versión de prueba 0.000.00.031 — nieve, tiempo e inspección
+
+- La nieve sigue la pendiente del suelo y conserva la transición húmeda junto al agua. La textura cambia el espesor aparente de forma suave.
+- La cobertura regula la cantidad de lluvia o nieve y la humedad del suelo. Las dos capas de nubes cambian de forma y se desplazan con el reloj celeste detenido.
+- La cámara de inspección conserva un margen sobre el terreno o el agua al descender o desplazar la vista.
+
+---
+
 # Versión de prueba 0.000.00.030 — puente romano
 
 - Río y Cascada permiten alternar entre la pasarela de madera y un puente de piedra de arco semicircular. Los estribos se apoyan fuera del cauce y los accesos siguen el relieve de la semilla. La prueba de recorrido con colisiones queda pendiente.

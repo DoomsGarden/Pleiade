@@ -576,9 +576,12 @@ void main(){
  }
  bool ground=(surf.z>3.5&&surf.z<4.5)||surf.z>=39.5;
  if(ground){
-  float drainage=smoothstep(.35,.62,filteredNoise(worldPosition.xz*.262));
-  float snow=uClimate.y*smoothstep(.55,.92,n.y)*mix(.35,1.0,drainage);
+  // Accumulation follows the terrain slope, independently of material bumps.
+  float slope=normalize(normal).y;
+  float texture=filteredNoise(worldPosition.xz*.38);
+  float snow=uClimate.y*smoothstep(.37,.84,slope)*mix(.86,1.0,texture);
   base=mix(base,vec3(.63,.70,.74),snow);
+  rough=mix(rough,.82,snow);
   base*=1.0-uClimate.z*.28;rough=mix(rough,.47,uClimate.z*.60);
  }
  if(foliage&&abs(atlasView+7.0)<.1){

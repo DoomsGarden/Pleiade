@@ -10,7 +10,7 @@ La demo nativa de C++ se distribuyó en un paquete x64 con SDL2, materiales y lo
 
 - **Orilla** permite explorar una cuenca de 104 m de lado en modo lago, río o cascada. En **Ajustes → Mirar bajo el agua** se puede inspeccionar el fondo. En **Río** y **Cascada**, elige **Pasarela de madera** o **Puente romano** para ver el cruce aguas arriba, con apoyos adaptados a la semilla. **Ver cruce** vuelve a encuadrarlo.
 - **Edificación** permite alternar entre la cabaña, la casa de teja, el refugio de piedra y el pabellón abierto. **Biomas** abre cinco paisajes que se regeneran con la semilla del mundo.
-- En **Ajustes → Estación y clima** se puede seleccionar la estación o vincularla al reloj del mundo. En **Materiales**, ese mismo panel permite desprender una rama de prueba y restaurarla.
+- En **Ajustes → Estación y clima** se puede seleccionar la estación, el tipo de precipitación y la cobertura de nubes. Elegir lluvia o nieve con el cielo despejado propone una cobertura del 70 %. La precipitación empieza sobre el 40 % de cobertura y gana intensidad hasta el 95 %. Puedes mantener el reloj celeste detenido mientras cambian las nubes. En **Materiales**, el mismo panel permite desprender una rama de prueba y restaurarla.
 
 Las sombras suavizadas atenúan el borde de cobertura y estabilizan la corrección en superficies rasantes. En C++, la cámara estratégica concentra la resolución cerca del jugador y las muestras de contacto cubren dos distancias.
 
@@ -53,7 +53,7 @@ En **Ajustes → Cielo y mundo → Volar por la escena**, la cámara toma la pos
 
 La cámara mantiene margen sobre el terreno y el agua. Puedes despegar desde las escenas locales y ascender hasta 6 km sobre el nivel de referencia, por encima de las dos capas de nubes. El recorrido conserva los límites horizontales de las escenas de prueba.
 
-Desde `0.000.00.021`, activa **Cobertura de nubes**, fija la altura de inspección en **2.200 m** y pulsa **Volar por la escena**. Arrastra para mirar hacia el lago a través de la capa inferior. Repite a **350 m** para ver la orilla desde debajo de la capa. Las nubes siguen desactivadas al inicio. Desde `0.000.00.023`, las nubes que quedan delante de una ventana también atenúan su reflejo.
+En **Estación y clima**, eleva **Cobertura de nubes**. En **Cielo y mundo**, fija la altura de inspección en **2.200 m** y pulsa **Volar por la escena**. Arrastra para mirar hacia el lago a través de la capa inferior. Repite a **350 m** para ver la orilla desde debajo de la capa. El visor arranca con cielo despejado. Desde `0.000.00.023`, las nubes que quedan delante de una ventana también atenúan su reflejo.
 
 Desde `0.000.00.029`, fija **Altura de inspección** en **6.000 m** y **Campo de visión** en **8°**. Arrastra hacia arriba o usa la flecha abajo con el lienzo enfocado para mirar verticalmente al suelo. Puedes girar ese encuadre y desplazarlo con dos dedos. **Volar por la escena** toma el mismo rumbo e inclinación.
 

@@ -7,6 +7,7 @@ import {plantContact} from '../dist/plant_contact.js';
 import {fly} from '../dist/flight.js';
 import {createRiverBridge} from '../dist/river_bridge.js';
 import {cloudTransmission,generateWorld} from '../dist/celestial.js';
+const weatherDraws=[];
 let id=0,boundFbo=null,activeUnit=0,currentProgram=null;const attachments=new Map(),textures=new Map(),buffers=new Map();let drawCalls=0;const uniformWrites=new Map();
 let boundVao,sceneSubmissions;
 const instanceBuffers=new WeakMap(), instanceData=new WeakMap();
@@ -23,7 +24,10 @@ const constants=new Map();const mk=()=>({id:++id});const methods={NO_ERROR:0,
   assert(count>0&&n>0);
   if(sceneSubmissions&&boundFbo?.isScene)sceneSubmissions.push({count,data:instanceData.get(instanceBuffers.get(boundVao))});
   draw();
- },drawArrays:()=>draw(),drawElements:()=>draw(),
+ },drawArrays:(mode,first,count)=>{
+  if(mode===gl.POINTS)weatherDraws.push([uniformWrites.get('uWeatherKind'),count]);
+  draw();
+ },drawElements:()=>draw(),
  getParameter:p=>p===gl.VERSION?'MOCK (not a GPU)':4096,getError:()=>0,isContextLost:()=>false,getExtension:()=>({}),checkFramebufferStatus:()=>gl.FRAMEBUFFER_COMPLETE,
  createTexture:mk,createBuffer:mk,createVertexArray:mk,bindVertexArray:vao=>boundVao=vao,
  drawBuffers:outputs=>{if(boundFbo)boundFbo.isScene=outputs.length===3;},
@@ -322,6 +326,29 @@ assert(pleiade.impact(point,impulse));pleiade.setTime(.8);assert(pleiade.report(
 el('restore-plant').onclick();pleiade.render();assert.equal(pleiade.report().detached,0);
 assert(climateAt('winter','clear',0).leaves<climateAt('summer','clear',0).leaves);
 pleiade.setClimate('winter','snow');pleiade.render();assert.equal(uniformWrites.get('uWeatherKind'),2);
+const sampleWeather=cover=>{
+ el('clouds').value=cover;
+ el('clouds').oninput();
+ weatherDraws.length=0;
+ pleiade.render();
+ return weatherDraws.slice();
+};
+assert.equal(el('clouds').value,.70,'choosing snowfall from a clear sky prepares cloud cover');
+const lightSnow=sampleWeather(.55);
+assert(lightSnow[0][1]>0&&lightSnow[0][1]<118);
+assert.deepEqual(sampleWeather(1),[[2,118]]);
+assert.deepEqual(sampleWeather(0),[],'no snowfall particles without cloud cover');
+pleiade.setClimate('summer','rain');
+assert.deepEqual(sampleWeather(1),[[1,146]]);
+assert(pleiade.report().climate.wet>0);
+assert.deepEqual(sampleWeather(0),[]);
+assert.equal(pleiade.report().climate.wet,0);
+pleiade.setAtmosphere({altitude:15});
+assert.deepEqual(sampleWeather(1),[[1,146]],'low-altitude inspection still shows precipitation');
+pleiade.setAtmosphere({altitude:350});
+assert.deepEqual(sampleWeather(1),[],'particle box follows only nearby ground views');
+pleiade.useScene('materials');
+sampleWeather(0);
 pleiade.setClimate('autumn','clear');pleiade.render();assert.equal(uniformWrites.get('uWeatherKind'),3);
 pleiade.setClimate('summer','clear');
 console.log('PASS: watershed transport, building styles, seasons and detached branch hierarchy.');
@@ -374,7 +401,7 @@ assert.equal(pleiade.world.satelliteRadiusDegrees,2);
 pleiade.applyWorld({...original,elapsedDays:0});pleiade.render();assert.equal(uniformWrites.get('uDaylight'),0);const night=uniformWrites.get('uLightColor');
 pleiade.applyWorld({...original,elapsedDays:.5});pleiade.render();assert.equal(uniformWrites.get('uDaylight'),1);assert(uniformWrites.get('uLightColor')[0]>night[0]);
 const clearLight=uniformWrites.get('uLightColor'),clearAmbient=uniformWrites.get('uSkyAmbient');
-const coverage=.85,transmission=cloudTransmission(pleiade.world,uniformWrites.get('uSkyLightDirection'),coverage);
+const coverage=1,transmission=cloudTransmission(pleiade.world,uniformWrites.get('uSkyLightDirection'),coverage,undefined,pleiade.state.time);
 assert(transmission>0&&transmission<1,'test world casts a cloud shadow');
 pleiade.setAtmosphere({clouds:coverage});pleiade.render();
 assert.deepEqual(uniformWrites.get('uCloudLightColor'),clearLight,'cloud lighting keeps incoming radiance');
@@ -403,6 +430,13 @@ assert.notDeepEqual(uniformWrites.get('uSkyLightDirection'),lightBeforeClockImpo
 assert.equal(pleiade.report().cloudCache.updates,beforeClockUpdates+1,'new day length invalidates even at the same cloud time');
 pleiade.render();assert.equal(pleiade.report().cloudCache.updates,beforeClockUpdates+1,'unchanged clock still reuses the panorama');
 pleiade.applyWorld(beforeClockImport);
+pleiade.render();
+const stationarySky=pleiade.world.elapsedDays,cloudUpdates=pleiade.report().cloudCache.updates;
+const weatherTime=pleiade.state.time;
+pleiade.setTime(weatherTime+.3);
+assert.equal(pleiade.world.elapsedDays,stationarySky);
+assert.equal(uniformWrites.get('uCloudTime'),weatherTime+.3);
+assert.equal(pleiade.report().cloudCache.updates,cloudUpdates+1,'cloud motion advances while the celestial clock is stopped');
 console.log('PASS cloud-cache reuse, camera rotation, altitude/time invalidation, reference and disabled modes.');
 
 pleiade.useScene('shore');
@@ -559,3 +593,11 @@ const afterTurn=pleiade.report().render.trianglesPerPass;
 assert.notEqual(afterTurn,beforeTurn,'turning at nadir refreshes visibility');
 pleiade.setQuality('eco');pleiade.render();
 assert.equal(afterTurn,pleiade.report().render.trianglesPerPass,'the rotated view matches a full visibility refresh');
+
+pleiade.useBiome('snow');
+pleiade.camera.target=[-15,0,-58];
+const ridge=createBiome('snow',pleiade.world.seed,geometry).height(-15,-58);
+assert(ridge>2);
+pleiade.setAtmosphere({altitude:2});
+pleiade.render();
+assert(Math.abs(uniformWrites.get('uCameraEye')[1]-ridge-.65)<1e-6,'inspection eye clears the generated ridge');

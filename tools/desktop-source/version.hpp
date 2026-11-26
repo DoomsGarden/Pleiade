@@ -1,4 +1,4 @@
 #pragma once
 namespace pl {
-inline constexpr const char *version = "0.000.00.030";
+inline constexpr const char *version = "0.000.00.031";
 }
