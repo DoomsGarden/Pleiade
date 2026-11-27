@@ -6,7 +6,7 @@ import {moveDetached,plantContact} from './plant_contact.js';
 import {ceiling,flightClearance,flightLimits,fly} from './flight.js?v=0.000.00.031';
 import {createRiverBridge} from './river_bridge.js?v=0.000.00.030';
 const $=id=>document.getElementById(id), canvas=$('view');
-const VERSION='0.000.00.033';
+const VERSION='0.000.00.034';
 const polePitch=Math.PI/2;
 const params=new URLSearchParams(location.search);
 const state={ready:false,scene:'shore',biome:'forest',waterMode:'lake',underwater:false,buildingForm:'cabin',season:'summer',weather:'clear',quality:window.PleiadeAndroid?'eco':'balanced',materials:true,shadows:true,shadowSoft:true,water:true,ssr:false,contact:false,animation:true,waveStrength:.35,time:0,waveTime:0,frames:0,errors:[],fps:0,hdr:false,paused:false};
@@ -515,7 +515,7 @@ function drawGlass(c){
  gl.enable(gl.CULL_FACE);gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
  drawGroup(glassGroup);gl.disable(gl.BLEND);gl.disable(gl.CULL_FACE);
 }
-function drawWeather(c){
+function drawWeather(c,waterVisible){
  if(state.underwater)return;
  const aboveGround=skyView||flight?c.eye[1]-surfaceAt(c.eye[0],c.eye[2]):0;
  const proximity=Math.min(1,Math.max(0,(60-aboveGround)/35));
@@ -531,6 +531,8 @@ function drawWeather(c){
  const origin=state.scene==='biomes'?[camera.target[0],camera.target[1],camera.target[2]]:
   [5+(state.scene==='shore'&&state.waterMode!=='lake'?2.8:0),2,-10.6+(state.scene==='shore'&&state.waterMode==='falls'?8:0)];
  uv(p,'uLeafOrigin',origin);bind(targets[3],2);ui(p,'uOpaqueDepth',2);
+ ui(p,'uWeatherWater',waterVisible);
+ if(waterVisible){bind(waterDepth,4);ui(p,'uWaterDepth',4);}
  gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);gl.bindVertexArray(emptyVAO);
  for(const [kind,count] of kinds){ui(p,'uWeatherKind',kind);gl.drawArrays(gl.POINTS,0,count);}
  gl.disable(gl.BLEND);
@@ -592,10 +594,11 @@ function render(){if(!state.ready||gl.isContextLost())return;
  const c=cameraFrame();uploadSceneMeshes(c);updateCloudCache(c);gl.enable(gl.DEPTH_TEST);gl.enable(gl.CULL_FACE);gl.disable(gl.BLEND);
  if(state.shadows&&shadowDirty){gl.bindFramebuffer(gl.FRAMEBUFFER,shadowFbo);gl.viewport(0,0,shadowSize,shadowSize);gl.clear(gl.DEPTH_BUFFER_BIT);let p=programs.shadow;gl.useProgram(p.id);um(p,'uVP',lightVP);uf(p,'uTime',state.time);uf(p,'uWind',climate.wind);gl.enable(gl.POLYGON_OFFSET_FILL);gl.polygonOffset(2,4);drawGroups();gl.disable(gl.POLYGON_OFFSET_FILL);shadowDirty=false;}
  gl.bindFramebuffer(gl.FRAMEBUFFER,sceneFbo);gl.viewport(0,0,canvas.width,canvas.height);gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);let p=programs.material;gl.useProgram(p.id);skyUniforms(p,c);um(p,'uVP',c.vp);um(p,'uView',c.v);um(p,'uLightVP',lightVP);uv(p,'uEye',c.eye);uf(p,'uTime',state.time);uf(p,'uWind',climate.wind);uv(p,'uClimate',[climate.autumn,climate.frost,climate.wet]);uf(p,'uWetTime',state.waveTime);uf(p,'uWaveStrength',state.waveStrength);uf(p,'uFogDensity',c.fogDensity);uf(p,'uTerrainSeed',world.seed%65536);ui(p,'uShadows',state.shadows);ui(p,'uShadowSoft',state.shadowSoft);ui(p,'uNatural',1);ui(p,'uMaterials',state.materials);ui(p,'uWet',state.scene==='shore'&&state.water&&state.waterMode==='lake');ui(p,'uShoreWaterMode',state.scene==='shore'&&state.water?waterModes.indexOf(state.waterMode):-1);ui(p,'uVisibilityEnabled',0);bind(shadowTexture,0);bind(visibilityTexture,11);ui(p,'uShadow',0);materialTextures.forEach((t,i)=>bind(t,5+i));drawGroups();
- if(state.water&&state.scene==='shore')drawWater(c);
- gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.disable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);p=programs.composite;gl.useProgram(p.id);skyUniforms(p,c);bind(cloudTexture||visibilityTexture,13);ui(p,'uCloudMap',13);ui(p,'uCloudCached',cloudReuse&&cloudAmount>0);for(let i=0;i<4;i++)bind(targets[[0,1,3,2][i]],i);bind(waterDepth,4);ui(p,'uWaterDepth',4);ui(p,'uContact',state.hdr&&state.contact);ui(p,'uWater',state.water&&state.scene==='shore');ui(p,'uWaterSSR',state.ssr&&state.water);ui(p,'uUnderwater',state.underwater&&state.water);setWaterUniforms(p);ui(p,'uContactCount',waterContacts.length/3);
+ const waterVisible=state.water&&state.scene==='shore';
+ if(waterVisible)drawWater(c);
+ gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.disable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);p=programs.composite;gl.useProgram(p.id);skyUniforms(p,c);bind(cloudTexture||visibilityTexture,13);ui(p,'uCloudMap',13);ui(p,'uCloudCached',cloudReuse&&cloudAmount>0);for(let i=0;i<4;i++)bind(targets[[0,1,3,2][i]],i);bind(waterDepth,4);ui(p,'uWaterDepth',4);ui(p,'uContact',state.hdr&&state.contact);ui(p,'uWater',waterVisible);ui(p,'uWaterSSR',state.ssr&&state.water);ui(p,'uUnderwater',state.underwater&&state.water);setWaterUniforms(p);ui(p,'uContactCount',waterContacts.length/3);
  if(waterContacts.length)gl.uniform3fv(loc(p,'uWaterContacts[0]'),waterContacts);
- if(state.water&&state.waterMode!=='lake')gl.uniform3fv(loc(p,'uDrift[0]'),driftSamples(state.waterMode,state.time));uf(p,'uExposure',1);uf(p,'uTurbidity',turbidity);ui(p,'uAA',1);uv(p,'uCameraEye',c.eye);uv(p,'uCameraRight',c.right);uv(p,'uCameraUp',c.up);uv(p,'uCameraForward',c.forward);gl.uniform2f(loc(p,'uProjectionScale'),c.p[0],c.p[5]);gl.uniform2f(loc(p,'uDepthRange'),...c.depthRange);gl.bindVertexArray(emptyVAO);gl.drawArrays(gl.TRIANGLES,0,3);drawGlass(c);drawWeather(c);state.frames++;
+ if(state.water&&state.waterMode!=='lake')gl.uniform3fv(loc(p,'uDrift[0]'),driftSamples(state.waterMode,state.time));uf(p,'uExposure',1);uf(p,'uTurbidity',turbidity);ui(p,'uAA',1);uv(p,'uCameraEye',c.eye);uv(p,'uCameraRight',c.right);uv(p,'uCameraUp',c.up);uv(p,'uCameraForward',c.forward);gl.uniform2f(loc(p,'uProjectionScale'),c.p[0],c.p[5]);gl.uniform2f(loc(p,'uDepthRange'),...c.depthRange);gl.bindVertexArray(emptyVAO);gl.drawArrays(gl.TRIANGLES,0,3);drawGlass(c);drawWeather(c,waterVisible);state.frames++;
  if(state.frames<4||params.has('test')){let error=gl.getError();if(error!==gl.NO_ERROR)throw Error('Error gráfico WebGL '+error);}
  if(capturePending){capturePending=false;canvas.toBlob(b=>{if(b)download(b,'Pleiade-tablet-'+state.scene+'.png');else toast('El navegador no ha podido guardar la imagen.');});}
 }

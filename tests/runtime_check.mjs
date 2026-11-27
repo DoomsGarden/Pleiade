@@ -343,6 +343,22 @@ assert.deepEqual(sampleWeather(1),[[1,146]]);
 assert(pleiade.report().climate.wet>0);
 assert.deepEqual(sampleWeather(0),[]);
 assert.equal(pleiade.report().climate.wet,0);
+
+for(const mode of ['lake','river','falls']){
+ pleiade.setWaterMode(mode);
+ assert.deepEqual(sampleWeather(1),[[1,146]]);
+ assert.equal(uniformWrites.get('uWeatherWater'),true);
+ assert.equal(uniformWrites.get('uWaterDepth'),4);
+}
+el('water').checked=false;el('water').onchange();
+assert.deepEqual(sampleWeather(1),[[1,146]],'hide-water mode retains precipitation');
+assert.equal(uniformWrites.get('uWeatherWater'),false,'hide-water mode ignores stale depth');
+el('water').checked=true;el('water').onchange();
+pleiade.useScene('building');
+assert.deepEqual(sampleWeather(1),[[1,146]]);
+assert.equal(uniformWrites.get('uWeatherWater'),false,'dry scenes ignore the shore depth');
+pleiade.setWaterMode('river');
+
 pleiade.setAtmosphere({altitude:15});
 assert.deepEqual(sampleWeather(1),[[1,146]],'low-altitude inspection still shows precipitation');
 pleiade.setAtmosphere({altitude:350});
