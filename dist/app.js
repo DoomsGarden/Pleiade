@@ -6,7 +6,7 @@ import {moveDetached,plantContact} from './plant_contact.js';
 import {ceiling,flightClearance,flightLimits,fly} from './flight.js?v=0.000.00.031';
 import {createRiverBridge} from './river_bridge.js?v=0.000.00.030';
 const $=id=>document.getElementById(id), canvas=$('view');
-const VERSION='0.000.00.032';
+const VERSION='0.000.00.033';
 const polePitch=Math.PI/2;
 const params=new URLSearchParams(location.search);
 const state={ready:false,scene:'shore',biome:'forest',waterMode:'lake',underwater:false,buildingForm:'cabin',season:'summer',weather:'clear',quality:window.PleiadeAndroid?'eco':'balanced',materials:true,shadows:true,shadowSoft:true,water:true,ssr:false,contact:false,animation:true,waveStrength:.35,time:0,waveTime:0,frames:0,errors:[],fps:0,hdr:false,paused:false};

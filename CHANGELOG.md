@@ -1,3 +1,10 @@
+# Versión de prueba 0.000.00.033 — lluvia y nieve al mover la cámara
+
+- Las gotas y los copos conservan su trayectoria en el mundo al desplazar la cámara. Las partículas se desvanecen al salir de la zona visible y vuelven a aparecer de forma gradual al reciclarse.
+- La lluvia cae más deprisa que la nieve. La cantidad de precipitación sigue respondiendo a la cobertura de nubes.
+
+---
+
 # Candidato 0.000.00.032 — colisiones del patio en primera persona
 
 - El recorrido nativo `--walk-demo` distingue el suelo, los peldaños, los pilares y la cara inferior del dintel. Puedes pasar por el vano a pie, golpear el dintel si saltas debajo y aterrizar sobre una plataforma.
