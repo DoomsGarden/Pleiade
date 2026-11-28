@@ -6,7 +6,7 @@ import {moveDetached,plantContact} from './plant_contact.js';
 import {ceiling,flightClearance,flightLimits,fly} from './flight.js?v=0.000.00.031';
 import {createRiverBridge} from './river_bridge.js?v=0.000.00.030';
 const $=id=>document.getElementById(id), canvas=$('view');
-const VERSION='0.000.00.034';
+const VERSION='0.000.00.035';
 const polePitch=Math.PI/2;
 const params=new URLSearchParams(location.search);
 const state={ready:false,scene:'shore',biome:'forest',waterMode:'lake',underwater:false,buildingForm:'cabin',season:'summer',weather:'clear',quality:window.PleiadeAndroid?'eco':'balanced',materials:true,shadows:true,shadowSoft:true,water:true,ssr:false,contact:false,animation:true,waveStrength:.35,time:0,waveTime:0,frames:0,errors:[],fps:0,hdr:false,paused:false};
@@ -38,7 +38,8 @@ let flight=null,gesture=null;
 let camera={target:[-1,0,-2],yaw:.8,pitch:.32,distance:15};
 let activeBiome, drawAnchor, layoutRevision=0, drawnRevision=-1, drawnSignature=0, submittedTriangles=0, needleBundles=0, foliageBundles=0;
 let watershed,shoreBaseObjects,shoreObjects,shoreBridge,bridgeStyle='timber',waterFbo,waterDepth,glassGroup;
-let climate=climateAt('summer','clear',0),leafStep=16,detached=null,lastDetachedAge=0,shadowWindStep=-1;
+let climate=climateAt('summer','clear',0),leafStep=16,detached=null,lastDetachedAge=0;
+let windCasters=false,shadowWindStep=-1,shadowWind=0;
 const buildingNames={cabin:'La cabaña',stone:'El refugio de piedra',shelter:'El pabellón de madera',house:'La casa de teja'};
 const shoreNames={lake:'La orilla',river:'El río',falls:'La cascada'};
 const bridgeStyles=['timber','roman'];
@@ -306,11 +307,18 @@ function uploadSceneMeshes({eye,forward,right,up}){
  for(const {id,objectIndex,fade} of plan)signature=Math.imul(signature^(typeof id==='number'?id:71+objectIndex)^Math.imul(objectIndex,113)^Math.imul(Math.round((fade??1)*16),773),16777619);
  if(drawnRevision===layoutRevision&&drawnSignature===signature)return;
  drawnRevision=layoutRevision;drawnSignature=signature;
+ windCasters=false;
  for(const {id,instance,material,fade} of plan){
   if(!byMesh.has(id))byMesh.set(id,[]);
   const batch=byMesh.get(id);
   if(material===undefined&&fade===undefined)batch.push(...instance);
   else{const copy=instance.slice();if(material!==undefined)copy[22]=material;if(fade!==undefined)copy[19]=fade;batch.push(...copy);}
+  if(!windCasters&&id!=='glass'){
+   // Match the animated branches in the shared geometry shader after LOD material overrides.
+   const surface=material??instance[22];
+   windCasters=(instance[23]>1.5&&surface<9.5)||(surface>=19.5&&surface<24.5)||
+    (surface>=33.5&&surface<35.5)||(surface>=37.5&&surface<39.5);
+  }
  }
  groups=[];
  glassGroup=null;
@@ -577,14 +585,11 @@ function updateCloudCache(c){
  bind(visibilityTexture,13);gl.bindFramebuffer(gl.FRAMEBUFFER,cloudFbo);gl.viewport(0,0,width,width/2);gl.disable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);gl.disable(gl.BLEND);gl.useProgram(programs.cloud.id);skyUniforms(programs.cloud,c,observer);gl.bindVertexArray(emptyVAO);gl.drawArrays(gl.TRIANGLES,0,3);cloudKey=key;cloudOrigin=observer;cloudBuiltAt=state.time;cloudBuilds++;
 }
 function render(){if(!state.ready||gl.isContextLost())return;
- const previousWind=climate.wind;
  climate=climateAt(state.season,state.weather,world.elapsedDays,cloudAmount);
  const precipitation=Math.round(climate.precipitation*100)+' %';
  if($('precipitation-label').textContent!==precipitation)$('precipitation-label').textContent=precipitation;
  const density=Math.round(climate.leaves*16);
  if(density!==leafStep){leafStep=density;drawAnchor=null;layoutRevision++;}
- const windStep=Math.floor(state.time*3);
- if(climate.wind!==previousWind||(climate.precipitation>0&&windStep!==shadowWindStep)){shadowWindStep=windStep;shadowDirty=true;}
  resize();skyFrame=celestialFrame(world);
  const groundTransmission=cloudTransmission(world,skyFrame.light,cloudAmount,undefined,state.time);
  surfaceLightColor=skyFrame.lightColor.map(x=>x*groundTransmission);
@@ -592,7 +597,14 @@ function render(){if(!state.ready||gl.isContextLost())return;
  const range=state.scene==='biomes'?64:state.scene==='building'?12:32;
  lightVP=math.mul(math.ortho(-range,range,-range,range,.1,200),math.look(math.scale(skyFrame.light,100),[0,0,0]));
  const c=cameraFrame();uploadSceneMeshes(c);updateCloudCache(c);gl.enable(gl.DEPTH_TEST);gl.enable(gl.CULL_FACE);gl.disable(gl.BLEND);
- if(state.shadows&&shadowDirty){gl.bindFramebuffer(gl.FRAMEBUFFER,shadowFbo);gl.viewport(0,0,shadowSize,shadowSize);gl.clear(gl.DEPTH_BUFFER_BIT);let p=programs.shadow;gl.useProgram(p.id);um(p,'uVP',lightVP);uf(p,'uTime',state.time);uf(p,'uWind',climate.wind);gl.enable(gl.POLYGON_OFFSET_FILL);gl.polygonOffset(2,4);drawGroups();gl.disable(gl.POLYGON_OFFSET_FILL);shadowDirty=false;}
+ const windStep=Math.floor(state.time*3);
+ const windChanged=windCasters&&(windStep!==shadowWindStep||climate.wind!==shadowWind);
+ if(state.shadows&&(shadowDirty||windChanged)){
+  gl.bindFramebuffer(gl.FRAMEBUFFER,shadowFbo);gl.viewport(0,0,shadowSize,shadowSize);gl.clear(gl.DEPTH_BUFFER_BIT);
+  const p=programs.shadow;gl.useProgram(p.id);um(p,'uVP',lightVP);uf(p,'uTime',state.time);uf(p,'uWind',climate.wind);
+  gl.enable(gl.POLYGON_OFFSET_FILL);gl.polygonOffset(2,4);drawGroups();gl.disable(gl.POLYGON_OFFSET_FILL);
+  shadowDirty=false;shadowWindStep=windStep;shadowWind=climate.wind;
+ }
  gl.bindFramebuffer(gl.FRAMEBUFFER,sceneFbo);gl.viewport(0,0,canvas.width,canvas.height);gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);let p=programs.material;gl.useProgram(p.id);skyUniforms(p,c);um(p,'uVP',c.vp);um(p,'uView',c.v);um(p,'uLightVP',lightVP);uv(p,'uEye',c.eye);uf(p,'uTime',state.time);uf(p,'uWind',climate.wind);uv(p,'uClimate',[climate.autumn,climate.frost,climate.wet]);uf(p,'uWetTime',state.waveTime);uf(p,'uWaveStrength',state.waveStrength);uf(p,'uFogDensity',c.fogDensity);uf(p,'uTerrainSeed',world.seed%65536);ui(p,'uShadows',state.shadows);ui(p,'uShadowSoft',state.shadowSoft);ui(p,'uNatural',1);ui(p,'uMaterials',state.materials);ui(p,'uWet',state.scene==='shore'&&state.water&&state.waterMode==='lake');ui(p,'uShoreWaterMode',state.scene==='shore'&&state.water?waterModes.indexOf(state.waterMode):-1);ui(p,'uVisibilityEnabled',0);bind(shadowTexture,0);bind(visibilityTexture,11);ui(p,'uShadow',0);materialTextures.forEach((t,i)=>bind(t,5+i));drawGroups();
  const waterVisible=state.water&&state.scene==='shore';
  if(waterVisible)drawWater(c);

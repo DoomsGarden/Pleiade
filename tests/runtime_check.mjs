@@ -9,7 +9,7 @@ import {createRiverBridge} from '../dist/river_bridge.js';
 import {cloudTransmission,generateWorld} from '../dist/celestial.js';
 const weatherDraws=[];
 let id=0,boundFbo=null,activeUnit=0,currentProgram=null;const attachments=new Map(),textures=new Map(),buffers=new Map();let drawCalls=0;const uniformWrites=new Map();
-let boundVao,sceneSubmissions;
+let boundVao,sceneSubmissions,shadowPasses=0;
 const instanceBuffers=new WeakMap(), instanceData=new WeakMap();
 const constants=new Map();const mk=()=>({id:++id});const methods={NO_ERROR:0,
  createFramebuffer:()=>{const f=mk();attachments.set(f,new Set());return f;},bindFramebuffer:(_,f)=>boundFbo=f,
@@ -28,6 +28,7 @@ const constants=new Map();const mk=()=>({id:++id});const methods={NO_ERROR:0,
   if(mode===gl.POINTS)weatherDraws.push([uniformWrites.get('uWeatherKind'),count]);
   draw();
  },drawElements:()=>draw(),
+ enable:mode=>{if(mode===gl.POLYGON_OFFSET_FILL)shadowPasses++;},
  getParameter:p=>p===gl.VERSION?'MOCK (not a GPU)':4096,getError:()=>0,isContextLost:()=>false,getExtension:()=>({}),checkFramebufferStatus:()=>gl.FRAMEBUFFER_COMPLETE,
  createTexture:mk,createBuffer:mk,createVertexArray:mk,bindVertexArray:vao=>boundVao=vao,
  drawBuffers:outputs=>{if(boundFbo)boundFbo.isScene=outputs.length===3;},
@@ -617,3 +618,40 @@ assert(ridge>2);
 pleiade.setAtmosphere({altitude:2});
 pleiade.render();
 assert(Math.abs(uniformWrites.get('uCameraEye')[1]-ridge-.65)<1e-6,'inspection eye clears the generated ridge');
+
+// Fixed camera and celestial clock isolate the vegetation-driven shadow cache.
+pleiade.setWaterMode('lake');
+pleiade.setClimate('summer','clear');
+pleiade.setTime(0);
+const shorePasses=shadowPasses;
+for(let frame=1;frame<30;frame++)pleiade.setTime(frame/30);
+assert.equal(shadowPasses,shorePasses+2,'clear-sky vegetation updates shadows at 3 Hz');
+pleiade.render();
+assert.equal(shadowPasses,shorePasses+2,'a paused frame reuses the shadow map');
+pleiade.setTime(.15);
+assert.equal(shadowPasses,shorePasses+3,'rewinding across steps updates to the requested phase');
+pleiade.setClimate('summer','rain');
+pleiade.setTime(.15);
+assert.equal(shadowPasses,shorePasses+4,'wind strength changes invalidate a frozen shadow map');
+pleiade.setTime(.35);
+assert.equal(shadowPasses,shorePasses+5,'rain keeps the same update cadence');
+el('shadows').checked=false;el('shadows').onchange();
+pleiade.setTime(.75);
+assert.equal(shadowPasses,shorePasses+5,'disabled shadows do not draw');
+el('shadows').checked=true;el('shadows').onchange();
+pleiade.render();
+pleiade.render();
+assert.equal(shadowPasses,shorePasses+6,'reenabling draws the current phase once');
+
+pleiade.useScene('building');
+pleiade.setTime(0);
+const buildingPasses=shadowPasses;
+for(let frame=1;frame<30;frame++)pleiade.setTime(frame/30);
+pleiade.setClimate('summer','clear');
+pleiade.render();
+pleiade.setTime(2);
+assert.equal(shadowPasses,buildingPasses,'static casters retain the map across dry and rainy wind steps');
+pleiade.setQuality('balanced');
+pleiade.render();
+assert.equal(shadowPasses,buildingPasses+1,'a new shadow texture still requires a pass');
+console.log('PASS: 3 Hz wind shadow updates, rewind, pause, wind strength changes, shadow toggle and static caching. Mock only.');

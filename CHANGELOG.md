@@ -1,3 +1,9 @@
+# Versión de prueba 0.000.00.035 — sombras de vegetación con viento
+
+- La sombra de las ramas y hojas que mueve el viento se actualiza también con cielo despejado. El mapa de sombras se reutiliza entre actualizaciones.
+
+---
+
 # Versión de prueba 0.000.00.034 — partículas en la superficie del agua
 
 - En lago, río y cascada, la profundidad de la superficie oculta la lluvia, la nieve y las hojas que quedan detrás. Las partículas por delante siguen visibles. La oclusión responde al control que muestra u oculta el agua.
