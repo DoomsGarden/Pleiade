@@ -1,16 +1,21 @@
 // Fictional sky format v1. Independent of browser time and the terrestrial catalogue.
 export const TAU=Math.PI*2;
+export const angularRadiusBounds=Object.freeze({min:.05,max:2});
+const defaultRadii={starRadiusDegrees:.006*180/Math.PI,satelliteRadiusDegrees:.007*180/Math.PI};
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 export function generateWorld(seed=12345){
  seed=Number(seed)>>>0;let s=seed;const rng=()=>{s=(s+0x6D2B79F5)|0;let t=Math.imul(s^s>>>15,1|s);t^=t+Math.imul(t^t>>>7,61|t);return ((t^t>>>14)>>>0)/4294967296;};
  const stars=Array.from({length:1800},()=>[rng()*TAU,Math.asin(rng()*2-1),.18+Math.pow(rng(),5)*.82,rng()]);
- return {format:'pleiade-sky',version:1,seed,name:'Mundo '+seed,elapsedDays:.5,daySeconds:720,latitude:.55,moonPeriod:19+rng()*12,moonPhase:rng()*TAU,stars};
+ return {format:'pleiade-sky',version:1,seed,name:'Mundo '+seed,elapsedDays:.5,daySeconds:720,latitude:.55,moonPeriod:19+rng()*12,moonPhase:rng()*TAU,...defaultRadii,stars};
 }
 export function validateWorld(w){
  if(!w||w.format!=='pleiade-sky'||w.version!==1||!Number.isInteger(w.seed)||w.seed<0||w.seed>4294967295||typeof w.name!=='string'||w.name.length>80)throw Error('Formato de mundo no compatible.');
  for(const [k,a,b]of[['elapsedDays',0,1e7],['daySeconds',60,86400],['latitude',-1.4,1.4],['moonPeriod',2,1000],['moonPhase',0,TAU]])if(!Number.isFinite(w[k])||w[k]<a||w[k]>b)throw Error('Parámetro celeste inválido: '+k);
  if(!Array.isArray(w.stars)||w.stars.length!==1800||w.stars.some(s=>!Array.isArray(s)||s.length!==4||s.some(x=>!Number.isFinite(x))||s[0]<0||s[0]>=TAU||Math.abs(s[1])>Math.PI/2||s[2]<0||s[2]>1||s[3]<0||s[3]>1))throw Error('Catálogo estelar inválido.');
- return structuredClone(w);
+ for(const key of Object.keys(defaultRadii)){
+  if(Object.hasOwn(w,key)&&(!Number.isFinite(w[key])||w[key]<angularRadiusBounds.min||w[key]>angularRadiusBounds.max))throw Error('Radio aparente fuera del rango permitido.');
+ }
+ return {...defaultRadii,...structuredClone(w)};
 }
 export function celestialFrame(w){
  const phase=(w.elapsedDays%1)*TAU,lat=w.latitude;
@@ -30,13 +35,23 @@ export function starAtlas(w,width=512,height=256){
  return data;
 }
 // Coarse light-path estimate for this small scene, not a cloud shadow map.
-export function cloudTransmission(w,d,coverage,origin=[0,0,0]){
+export function cloudTransmission(w,d,coverage,origin=[0,0,0],time=0){
  if(coverage<=0)return 1;if(d[1]<=0)return 0;
  const fract=x=>x-Math.floor(x),mix=(a,b,t)=>a+(b-a)*t,smooth=(a,b,x)=>{let t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t);};
  const hash=p=>fract(Math.sin(p[0]*127.1+p[1]*311.7+p[2]*74.7+w.seed%65536)*43758.5453);
  const noise=p=>{const cell=p.map(Math.floor),f=p.map(x=>{let t=fract(x);return t*t*(3-2*t);});let v=[];for(let z=0;z<2;z++)for(let y=0;y<2;y++)for(let x=0;x<2;x++)v.push(hash([cell[0]+x,cell[1]+y,cell[2]+z]));return mix(mix(mix(v[0],v[1],f[0]),mix(v[2],v[3],f[0]),f[1]),mix(mix(v[4],v[5],f[0]),mix(v[6],v[7],f[0]),f[1]),f[2]);};
- let optical=0;const time=w.elapsedDays*w.daySeconds;
- for(const [base,top] of [[900,1700],[3200,3650]]){let entry=Math.max(0,(base-origin[1])/d[1]),end=Math.min(6000,(top-origin[1])/d[1]);if(end<=entry)continue;let step=(end-entry)/8;
- for(let i=0;i<8;i++){const point=origin.map((v,j)=>v+d[j]*(entry+(i+.5)*step));let q=point.map(v=>v*.0012);q[0]+=time*.0008;q[2]+=time*.0003;let h=(point[1]-base)/(top-base),shape=noise(q)*.7+noise(q.map(v=>v*2.7))*.3;optical+=smooth(1-coverage*.7,1-coverage*.7+.17,shape)*smooth(0,.18,h)*(1-smooth(.65,1,h))*.004*step;}}
+ let optical=0;
+ for(const [base,top,windX,windZ] of [[900,1700,.006,.0025],[3200,3650,.009,-.002]]){
+  const entry=Math.max(0,(base-origin[1])/d[1]),end=Math.min(6000,(top-origin[1])/d[1]);
+  if(end<=entry)continue;
+  const step=(end-entry)/8;
+  for(let i=0;i<8;i++){
+   const point=origin.map((v,j)=>v+d[j]*(entry+(i+.5)*step));
+   const q=[point[0]*.0012+windX*time,point[1]*.0012,point[2]*.0012+windZ*time];
+   const detail=[q[0]*2.7+.002*time,q[1]*2.7+.005*time,q[2]*2.7-.005*time];
+   const h=(point[1]-base)/(top-base),shape=noise(q)*.7+noise(detail)*.3;
+   optical+=smooth(1-coverage*.7,1-coverage*.7+.17,shape)*smooth(0,.18,h)*(1-smooth(.65,1,h))*.004*step;
+  }
+ }
  return Math.exp(-optical);
 }

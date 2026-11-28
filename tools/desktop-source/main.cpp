@@ -1,19 +1,24 @@
 #define SDL_MAIN_HANDLED
 #include "benchmark.hpp"
+#include "cinematic_camera.hpp"
 #include "pacing.hpp"
+#include "player_controller.hpp"
 #include "renderer.hpp"
+#include "scout_group.hpp"
 #include "shore.hpp"
 #include "simulation.hpp"
+#include "strategy_selection.hpp"
 #include "version.hpp"
-#include "visibility.hpp"
 #include "world.hpp"
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <sstream>
 #include <thread>
 
@@ -27,6 +32,8 @@ struct Options {
     int strategyDistance = 0;
     int seconds = 0, warmupSeconds = 5, maxFPS = 60;
     bool world = false, reference = false, aa = true, lod = true, freeze = false;
+    bool walkDemo = false, cinematic = false;
+    double cinematicTime = 0;
     int inspectionAngle = 0;
     bool inspectTree = false;
     bool materials = false, shore = false, water = true, waterSSR = true;
@@ -44,6 +51,7 @@ struct Options {
 };
 Options parse(int argc, char **argv) {
     Options o;
+    bool explicitCinematicTime = false;
     bool explicitFrames = false, explicitWarmup = false, explicitSeconds = false,
          explicitWarmupSeconds = false, explicitMaxFPS = false;
     for (int i = 1; i < argc; ++i) {
@@ -75,7 +83,19 @@ Options parse(int argc, char **argv) {
             o.materials = true;
         else if (a == "--water-demo")
             o.shore = true;
-        else if (a == "--no-water-ssr")
+        else if (a == "--walk-demo")
+            o.walkDemo = true;
+        else if (a == "--cinematic")
+            o.cinematic = true;
+        else if (a == "--cinematic-time") {
+            auto raw = value();
+            size_t parsed = 0;
+            o.cinematicTime = std::stod(raw, &parsed);
+            if (parsed != raw.size() || !std::isfinite(o.cinematicTime) ||
+                o.cinematicTime < 0 || o.cinematicTime > 3600)
+                throw std::invalid_argument("Invalid value for " + a);
+            explicitCinematicTime = true;
+        } else if (a == "--no-water-ssr")
             o.waterSSR = false;
         else if (a == "--wave-strength")
             o.waveStrength = number(0, 100);
@@ -192,7 +212,8 @@ Options parse(int argc, char **argv) {
                    "--chunk-budget 1..8 --no-lod --no-aa "
                    "--freeze\n--benchmark [--seconds N "
                    "--warmup-seconds N | --frames N --warmup N]\n--max-fps N "
-                   "(0 unlimited; interactive default 60)\n--camera fps|strategy\n--width N --height N "
+                   "(0 unlimited; interactive default 60)\n--camera fps|strategy --walk-demo\n"
+                   "--cinematic [--cinematic-time SECONDS]\n--width N --height N "
                    "--stress 0..10000 --shadow-size 512|1024|2048|4096\n--no-culling --no-shadows "
                    "--no-hud --headless --resize-test --no-title-updates --no-region-culling "
                    "--fixed-camera --terrain-lod --fow-demo --no-fow-culling --vision-radius "
@@ -204,6 +225,12 @@ Options parse(int argc, char **argv) {
         } else
             throw std::invalid_argument("Unknown argument: " + a);
     }
+    if (explicitCinematicTime && !o.cinematic)
+        throw std::invalid_argument("--cinematic-time requires --cinematic");
+    if (o.cinematic && (o.benchmark || o.fowDemo || o.inspectTree || o.walkDemo || o.resizeTest))
+        throw std::invalid_argument("--cinematic needs an independent camera");
+    if (o.walkDemo && (o.benchmark || o.fowDemo || o.inspectTree))
+        throw std::invalid_argument("--walk-demo needs an interactive player camera");
     if ((explicitSeconds || explicitWarmupSeconds) && !o.benchmark)
         throw std::invalid_argument("Time options require --benchmark");
     if (explicitFrames && (explicitSeconds || explicitWarmupSeconds))
@@ -428,7 +455,9 @@ void saveReport(const Options &o, const Renderer &r, const std::vector<Sample> &
          << ",\n  \"opengl\": " << quote(r.api)
          << ",\n  \"sdl_video_driver\": " << quote(SDL_GetCurrentVideoDriver())
          << ",\n  \"width\": " << r.width << ",\n  \"height\": " << r.height
-         << ",\n  \"camera\": " << quote(o.strategy ? "strategy-perspective" : "fps-inspection")
+         << ",\n  \"camera\": "
+         << quote(o.cinematic ? "cinematic" : o.strategy ? "strategy-perspective"
+                                                         : o.walkDemo ? "first-person-player" : "fps-inspection")
          << ",\n  \"benchmark\": " << (o.benchmark ? "true" : "false")
          << ",\n  \"diagnostics_schema\": 7"
          << ",\n  \"terrain_lod_enabled\": " << (o.terrainLOD ? "true" : "false")
@@ -452,13 +481,12 @@ void saveReport(const Options &o, const Renderer &r, const std::vector<Sample> &
          << ",\n  \"culling\": " << (o.culling ? "true" : "false")
          << ",\n  \"shadows\": " << (o.shadows ? "true" : "false")
          << ",\n  \"shadow_size\": " << r.shadowSize << ",\n  \"shadow_policy\": "
-         << quote(o.world ? "strategy fits visible loaded regions; FPS local volume; grass does not "
-                            "cast shadows"
+         << quote(o.world ? "world-anchored texels; strategy volume sized by zoom; grass does not cast shadows"
                           : "static scene cached after first draw")
          << ",\n  \"spatial_antialiasing\": " << (o.reference && o.aa ? "true" : "false")
          << ",\n  \"world_seed\": " << o.seed << ",\n  \"lod_enabled\": " << (o.lod ? "true" : "false")
          << ",\n  \"world_radius\": " << o.worldRadius
-         << ",\n  \"actors\": " << (o.world ? o.actors + (o.fowDemo ? 1 : 0) : 0)
+         << ",\n  \"actors\": " << (o.world ? o.actors + (o.fowDemo ? ScoutGroup::size : 0) : 0)
          << ",\n  \"chunk_budget_per_frame\": " << o.chunkBudget
          << ",\n  \"generation_soft_budget_ms\": 2.0"
          << ",\n  \"peak_resident_chunks\": " << peakChunks
@@ -525,6 +553,24 @@ void saveReport(const Options &o, const Renderer &r, const std::vector<Sample> &
               << fixed(percentile(times, .95)) << " ms. GPU samples " << gpuTimes.size()
               << ".\nReports: " << o.output << "\n";
 }
+CinematicTrack demoTrack(const Options &o) {
+    if (o.shore)
+        return CinematicTrack({
+            {0, {8, 3.2f, 9}, {-2, 1.3f, -4}, 55},
+            {3, {4.4f, 2.25f, 6.8f}, {-2.1f, 1.2f, -4.8f}, 52},
+            {6, {2.8f, 1.35f, 3.8f}, {-2.9f, .8f, -5}, 49},
+            {6.8, {-8, 3.9f, 2.5f}, {5.7f, 2.8f, -6.8f}, 52, true},
+            {10, {-6.5f, 5.2f, -.8f}, {5.6f, 3.1f, -7.4f}, 58},
+        });
+    V3 offset = o.world ? V3{18, terrainHeight(18, 16), 16} : V3{};
+    return CinematicTrack({
+        {0, offset + V3{10, 5, 21}, offset + V3{0, 2.7f, -2}, 55},
+        {3, offset + V3{5, 3.8f, 16}, offset + V3{0, 2.5f, -2}, 52},
+        {6, offset + V3{2, 2.8f, 10}, offset + V3{0, 2.75f, -1}, 47},
+        {6.8, offset + V3{-9, 6, 9}, offset + V3{1, 3.2f, -2}, 54, true},
+        {10, offset + V3{-6, 7.4f, 7}, offset + V3{1, 3.2f, -2.5f}, 60},
+    });
+}
 int run(int argc, char **argv) {
     Options o = parse(argc, argv);
     Platform platform(o);
@@ -534,15 +580,29 @@ int run(int argc, char **argv) {
     Scene scene(o.stress, !o.world && !o.shore);
     if (o.shore)
         scene = makeShoreScene();
+    std::vector<WalkSolid> walkSolids;
+    if (o.walkDemo && !o.world && !o.shore) {
+        // Low courtyard passage for standing clearance and jump contact.
+        constexpr float bottom = .08f, lintel = 2.13f;
+        constexpr V3 stone{.61f, .55f, .46f};
+        for (float side : {-1.f, 1.f})
+            scene.add(MeshType::Cube, {side * 1.25f, (bottom + lintel) * .5f, 12.f},
+                      {.70f, lintel - bottom, .75f}, stone);
+        scene.add(MeshType::Cube, {0, lintel + .20f, 12.f}, {3.2f, .40f, .75f}, stone);
+        for (const auto &object : scene.objects)
+            if (object.mesh == MeshType::Cube)
+                walkSolids.push_back({object.center, object.half});
+    }
     std::unique_ptr<ProceduralWorld> world;
     if (o.world)
         world = std::make_unique<ProceduralWorld>(uint32_t(o.seed), o.worldRadius, o.reference);
     std::unique_ptr<VisibilityMap> visibility;
-    Scout scout;
+    ScoutGroup scoutGroup;
     double lastVisibilityTime = -1;
     if (o.fowDemo)
         visibility = std::make_unique<VisibilityMap>();
     FixedSimulation simulation;
+    PlayerController player;
     WorldStats worldStats;
     size_t worldBaseCount = 0;
     int simSteps = 0;
@@ -560,12 +620,55 @@ int run(int argc, char **argv) {
         camera.distance = 75;
     if (o.strategyDistance)
         camera.distance = float(o.strategyDistance);
+    const auto walkGround = [&](float x, float z) {
+        constexpr float radius = .27f;
+        const float invalid = std::numeric_limits<float>::quiet_NaN();
+        if (o.world)
+            return terrainHeight(x, z);
+        if (o.shore)
+            return std::abs(x) <= 24 - radius && std::abs(z) <= 24 - radius &&
+                           shoreHeight(x, z) >= .08f
+                       ? shoreHeight(x, z)
+                       : invalid;
+        if (std::abs(x) > 90 - radius || std::abs(z) > 90 - radius)
+            return invalid;
+        return -.15f;
+    };
+    if (o.walkDemo) {
+        if (!o.world && !o.shore) {
+            camera.pos = {0, 0, 19.5f};
+            camera.face({0, 1.f, -1});
+            camera.pitch = -.05f;
+        }
+        if (!player.spawn(camera.pos, walkGround, walkSolids))
+            throw std::runtime_error("The player spawn is outside the walkable surface");
+        camera.pos = player.eye();
+    }
+    std::optional<CinematicTrack> cinematic;
+    if (o.cinematic)
+        cinematic = demoTrack(o);
+    struct StrategyClick {
+        float x, y;
+        bool additive;
+    };
+    struct StrategyView {
+        Camera camera;
+        float aspect;
+    };
+    std::vector<StrategyClick> pendingPicks;
+    std::optional<StrategyView> presentedStrategy;
+    Uint16 modifiers = SDL_GetModState();
+    const char *orderStatus = nullptr;
+    bool jumpQueued = false;
     std::cout << "PLEIADE " << version << "\n"
               << renderer.vendor << " | " << renderer.gpu << " | " << renderer.api << "\n";
     if (renderer.gpu.find("llvmpipe") != std::string::npos)
         std::cout << "SOFTWARE RENDERER: results do not predict RTX 2060 performance.\n";
-    std::cout << "TAB camera, RMB mouse look, WASD move, Q/E height, wheel strategy zoom, Shift "
-                 "fast\nF1 help, F2 culling, F3 shadows, F4 HUD, F12 screenshot, Escape exit\n";
+    std::cout << "TAB camera, RMB orbit/look, WASD move, wheel strategy zoom, Shift fast\n"
+              << (o.walkDemo ? "Space jump\n" : "Q/E inspection height\n")
+              << "F1 help, F2 culling, F3 shadows, F4 HUD, F12 screenshot, Escape exit\n";
+    if (visibility)
+        std::cout << "LMB select or order, Shift+LMB add scout\n";
     const int limit = o.frames ? o.frames + o.warmup : 0;
     std::vector<Sample> samples;
     samples.reserve(limit ? limit : 10000);
@@ -616,12 +719,19 @@ int run(int argc, char **argv) {
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT)
                 running = false;
+            if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP)
+                modifiers = event.key.keysym.mod;
             if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
                 SDL_SetRelativeMouseMode(SDL_FALSE);
                 mouse = false;
+                jumpQueued = false;
+                modifiers = KMOD_NONE;
+                pendingPicks.clear();
             }
+            if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED)
+                modifiers = SDL_GetModState();
             if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_RIGHT &&
-                !o.benchmark) {
+                !o.benchmark && !cinematic) {
                 mouse = true;
                 SDL_SetRelativeMouseMode(SDL_TRUE);
             }
@@ -629,12 +739,22 @@ int run(int argc, char **argv) {
                 mouse = false;
                 SDL_SetRelativeMouseMode(SDL_FALSE);
             }
-            if (event.type == SDL_MOUSEMOTION && mouse && !o.benchmark && !camera.strategy) {
+            if (event.type == SDL_MOUSEMOTION && mouse && !o.benchmark && !cinematic) {
                 if (camera.strategy)
                     camera.orbit -= event.motion.xrel * .0025f;
-                else
+                else {
                     camera.yaw -= event.motion.xrel * .0025f;
-                camera.pitch = std::clamp(camera.pitch - event.motion.yrel * .0025f, -1.5f, 1.5f);
+                    camera.pitch = std::clamp(camera.pitch - event.motion.yrel * .0025f, -1.5f, 1.5f);
+                }
+            }
+            if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_LEFT &&
+                presentedStrategy && camera.strategy && !mouse && !o.benchmark) {
+                int windowWidth, windowHeight;
+                SDL_GetWindowSize(platform.window, &windowWidth, &windowHeight);
+                if (windowWidth > 0 && windowHeight > 0)
+                    pendingPicks.push_back({2.f * (event.button.x + .5f) / windowWidth - 1,
+                                            1 - 2.f * (event.button.y + .5f) / windowHeight,
+                                            (modifiers & KMOD_SHIFT) != 0});
             }
             if (event.type == SDL_MOUSEWHEEL && camera.strategy && !o.benchmark)
                 camera.distance = std::clamp(camera.distance - event.wheel.y * 2.f, 8.f, 100.f);
@@ -645,8 +765,18 @@ int run(int argc, char **argv) {
                 if (key == SDLK_F1 && !o.benchmark)
                     help = !help;
                 if (!o.benchmark) {
-                    if (key == SDLK_TAB) {
+                    if (key == SDLK_SPACE && o.walkDemo && !camera.strategy)
+                        jumpQueued = true;
+                    if (key == SDLK_TAB && !cinematic) {
+                        if (!camera.strategy && o.walkDemo) {
+                            camera.target = player.position();
+                            camera.distance = 22;
+                        }
                         camera.strategy = !camera.strategy;
+                        scoutGroup.selected.fill(false);
+                        orderStatus = nullptr;
+                        jumpQueued = false;
+                        pendingPicks.clear();
                         ++toggles;
                     }
                     if (key == SDLK_F2)
@@ -706,7 +836,17 @@ int run(int argc, char **argv) {
         }
         auto eventsEnd = Clock::now();
         double fogUpdateMs = 0;
-        if (o.benchmark && !o.world && !o.fixedCamera)
+        const bool fixedStepPlayback = (o.benchmark && !o.seconds) || (cinematic && limit);
+        if (o.world || o.shore || o.walkDemo)
+            simSteps = simulation.advance(fixedStepPlayback ? FixedSimulation::step : realDt);
+        if (cinematic) {
+            const auto pose = cinematic->sample(o.cinematicTime + (limit ? frame * FixedSimulation::step : elapsed));
+            camera.strategy = false;
+            camera.pos = pose.position;
+            camera.target = pose.target;
+            camera.face(pose.target);
+            camera.verticalFovDegrees = pose.verticalFovDegrees;
+        } else if (o.benchmark && !o.world && !o.fixedCamera)
             camera = o.seconds
                          ? tour(static_cast<int>(
                                     (5.0 - 5.0 * std::cos(2.0 * pi *
@@ -718,10 +858,19 @@ int run(int argc, char **argv) {
                          : tour(std::max(0, frame - o.warmup), o.strategy);
         else {
             auto keys = SDL_GetKeyboardState(nullptr);
-            manualCameraMotion(camera, o.benchmark, float(keys[SDL_SCANCODE_D] - keys[SDL_SCANCODE_A]),
-                               float(keys[SDL_SCANCODE_W] - keys[SDL_SCANCODE_S]),
-                               float(keys[SDL_SCANCODE_E] - keys[SDL_SCANCODE_Q]), dt,
-                               keys[SDL_SCANCODE_LSHIFT]);
+            float right = float(keys[SDL_SCANCODE_D] - keys[SDL_SCANCODE_A]);
+            float forward = float(keys[SDL_SCANCODE_W] - keys[SDL_SCANCODE_S]);
+            if (o.walkDemo && !camera.strategy) {
+                for (int i = 0; i < simSteps; ++i) {
+                    player.step({right, forward, keys[SDL_SCANCODE_LSHIFT] != 0, jumpQueued},
+                                camera.yaw, walkGround, walkSolids);
+                    jumpQueued = false;
+                }
+                camera.pos = player.eye(float((simulation.renderTime() - simulation.time()) / FixedSimulation::step));
+            } else
+                manualCameraMotion(camera, o.benchmark, right, forward,
+                                   float(keys[SDL_SCANCODE_E] - keys[SDL_SCANCODE_Q]), dt,
+                                   keys[SDL_SCANCODE_LSHIFT]);
         }
         if (o.world) {
             double pathTime = o.benchmark
@@ -732,9 +881,8 @@ int run(int argc, char **argv) {
                 camera = worldTour(pathTime, o.strategy);
             if (o.benchmark && o.strategyDistance)
                 camera.distance = float(o.strategyDistance);
-            if (!camera.strategy)
+            if (!camera.strategy && !cinematic && !o.walkDemo)
                 camera.pos.y = std::max(camera.pos.y, terrainHeight(camera.pos.x, camera.pos.z) + 1.7f);
-            simSteps = simulation.advance(o.benchmark && !o.seconds ? 1.0 / 60.0 : realDt);
             scene.objects.resize(worldBaseCount);
             worldStats =
                 world->update(o.fowDemo ? V3{8, 0, 6} : (camera.strategy ? camera.target : camera.pos),
@@ -763,29 +911,63 @@ int run(int argc, char **argv) {
                     treeInspectionPlaced = true;
                 }
             }
-            scene.time = o.freeze ? 0 : simulation.renderTime();
+            scene.time = o.freeze ? 0 : simulation.renderTime() + (cinematic ? o.cinematicTime : 0);
             appendActors(scene, scene.time, o.actors);
             if (visibility) {
                 auto fogStart = Clock::now();
                 visibility->rebuild(scene);
+                if (presentedStrategy && !pendingPicks.empty() && worldStats.pending == 0) {
+                    constexpr uint64_t structureId = 0;
+                    std::vector<StrategyPickTarget> targets;
+                    for (size_t i = 0; i < ScoutGroup::size; ++i)
+                        targets.push_back({i + 1, scoutGroup.scouts[i].position + V3{0, .9f, 0},
+                                           {.75f, .9f, .75f}});
+                    for (const auto &object : scene.objects)
+                        if (object.visible && (object.mesh == MeshType::Cube || object.mesh == MeshType::Roof ||
+                                               object.mesh == MeshType::HipRoof))
+                            targets.push_back({structureId, object.center, object.half});
+                    const auto loadedHeight = [&](float x, float z) {
+                        return visibility->residentCell(visibility->index(x, z))
+                                   ? terrainHeight(x, z) : std::numeric_limits<float>::quiet_NaN();
+                    };
+                    for (const auto &click : pendingPicks) {
+                        const auto hit = pickStrategy(presentedStrategy->camera, click.x, click.y,
+                                                      presentedStrategy->aspect, targets, loadedHeight);
+                        if (hit && hit->entity && *hit->entity != structureId) {
+                            scoutGroup.select(size_t(*hit->entity - 1), click.additive);
+                            orderStatus = nullptr;
+                        } else if (hit && !hit->entity && !click.additive && scoutGroup.selectionCount()) {
+                            orderStatus = scoutGroup.command(*visibility, hit->point) ? "ORDER ACCEPTED" : "ROUTE UNAVAILABLE";
+                        } else if (!hit && !click.additive) {
+                            scoutGroup.selected.fill(false);
+                            orderStatus = nullptr;
+                        }
+                    }
+                }
+                pendingPicks.clear();
                 if (worldStats.pending == 0)
-                    scout.advance(*visibility,
-                                  o.freeze ? 0.0 : (o.benchmark && !o.seconds ? 1.0 / 60.0 : realDt));
+                    for (auto &scout : scoutGroup.scouts)
+                        scout.advance(*visibility,
+                                      o.freeze ? 0.0 : (o.benchmark && !o.seconds ? 1.0 / 60.0 : realDt));
                 if (worldStats.pending == 0 &&
                     (lastVisibilityTime < 0 || scene.time - lastVisibilityTime >= .1 ||
                      visibility->revision == 0)) {
-                    visibility->reveal(scout.position, float(o.visionRadius));
+                    std::array<V3, ScoutGroup::size> observers{};
+                    for (size_t i = 0; i < ScoutGroup::size; ++i)
+                        observers[i] = scoutGroup.scouts[i].position;
+                    visibility->reveal(observers, float(o.visionRadius));
                     lastVisibilityTime = scene.time;
                 }
-                scout.append(scene, scene.time);
+                if (worldStats.pending == 0)
+                    for (const auto &scout : scoutGroup.scouts)
+                        scout.append(scene, scene.time);
                 fogUpdateMs = milliseconds(fogStart, Clock::now());
                 renderer.setVisibility(visibility.get(), o.fowCulling);
             }
         }
-        if (o.shore) {
-            simSteps = simulation.advance(o.benchmark && !o.seconds ? 1.0 / 60.0 : realDt);
-            scene.time = (o.freeze ? 0.0 : simulation.renderTime()) + o.waterTime;
-        }
+        if (o.shore)
+            scene.time = (o.freeze ? 0.0 : simulation.renderTime() + (cinematic ? o.cinematicTime : 0)) +
+                         o.waterTime;
         auto updateEnd = Clock::now();
         for (auto [id, ms] : renderer.collectGPU()) {
             if (id < int(samples.size()))
@@ -809,8 +991,9 @@ int run(int argc, char **argv) {
             ui.text(20 + 10 * scale, 20 + 36 * scale, std::string("ENGINE LAB / ") + version, scale,
                     muted);
             ui.text(20 + 10 * scale, 20 + 53 * scale,
-                    camera.strategy ? "02  /  STRATEGY VIEW" : "01  /  FIRST PERSON INSPECTION", scale,
-                    mint);
+                    cinematic ? "CINEMATIC" : camera.strategy ? "02  /  STRATEGY VIEW"
+                                : o.walkDemo ? "01  /  FIRST PERSON WALK" : "01  /  FIRST PERSON INSPECTION",
+                    scale, mint);
             float y = float(h) - 84 * scale - 20;
             ui.rect(20, y, 290 * scale, 84 * scale, {.025f, .045f, .055f, .91f});
             ui.text(20 + 10 * scale, y + 10 * scale,
@@ -827,16 +1010,22 @@ int run(int argc, char **argv) {
                     scale, muted);
             ui.text(20 + 10 * scale, y + 62 * scale,
                     o.benchmark ? "BENCHMARK / FIXED CAMERA PATH"
-                                : ("TAB CAMERA / CAP " + std::to_string(o.maxFPS) + " FPS"),
+                                : cinematic ? "REAL TIME CAMERA TRACK"
+                                            : ("TAB CAMERA / CAP " + std::to_string(o.maxFPS) + " FPS"),
                     scale, mint);
             if (help) {
                 float yy = 110 * scale;
-                ui.rect(20, yy, 290 * scale, 90 * scale, {.025f, .045f, .055f, .94f});
+                ui.rect(20, yy, 290 * scale, (visibility ? 105 : 90) * scale,
+                        {.025f, .045f, .055f, .94f});
                 int row = 0;
-                for (auto s : {"WASD MOVE / SHIFT FAST", "HOLD RIGHT MOUSE TO LOOK / Q E HEIGHT",
+                for (auto s : {"WASD MOVE / SHIFT FAST",
+                               o.walkDemo ? "RIGHT MOUSE LOOK / SPACE JUMP" : "RIGHT MOUSE LOOK / Q E HEIGHT",
                                "WHEEL ZOOM IN STRATEGY MODE", "F2 CULL / F3 SHADOW / F4 HUD",
                                "F9 MATERIALS / F10 WATER / F12 CAPTURE"})
                     ui.text(20 + 10 * scale, yy + (10 + row++ * 15) * scale, s, scale, white);
+                if (visibility)
+                    ui.text(20 + 10 * scale, yy + (10 + row * 15) * scale,
+                            "CLICK SCOUT / SHIFT CLICK ADD", scale, white);
             }
             if (o.world) {
                 float x = float(w) - 20 - 260 * scale;
@@ -853,7 +1042,7 @@ int run(int argc, char **argv) {
                          "TREES " + std::to_string(worldStats.trees) + " / GRASS " +
                              std::to_string(worldStats.grass),
                          "STRUCTURES " + std::to_string(worldStats.structures) + " / ACTORS " +
-                             std::to_string(o.actors + (o.fowDemo ? 1 : 0)),
+                             std::to_string(o.actors + (o.fowDemo ? ScoutGroup::size : 0)),
                          "UPDATE " + fixed(worldStats.generationMs) + " MS / FAR LOD " +
                              std::to_string(stats.lodFar),
                          "TRIANGLES " + std::to_string(stats.triangles),
@@ -868,8 +1057,16 @@ int run(int argc, char **argv) {
             }
             if (visibility) {
                 float mx = float(w) - 184, my = float(h) - 170;
-                ui.rect(mx - 4, my - 24, 168, 188, {.015f, .02f, .025f, 1});
-                ui.text(mx, my - 18, "SCOUT / EXPLORED MAP", 1, {.7f, .9f, 1, 1});
+                ui.rect(mx - 4, my - 26, 168, 190, {.015f, .02f, .025f, 1});
+                const auto selectedCount = scoutGroup.selectionCount();
+                ui.text(mx, my - 22, "SCOUTS " + std::to_string(selectedCount) + "/" +
+                            std::to_string(ScoutGroup::size) + " SELECTED", 1, {.7f, .9f, 1, 1});
+                const char *hint = worldStats.pending > 0 ? "LOADING TERRAIN"
+                                   : !camera.strategy    ? "TAB STRATEGY VIEW"
+                                   : orderStatus         ? orderStatus
+                                   : selectedCount       ? "CLICK TERRAIN TO MOVE"
+                                                         : "CLICK SCOUT TO SELECT";
+                ui.text(mx, my - 11, hint, 1, {.7f, .9f, 1, 1});
                 for (int z = 0; z < 32; ++z)
                     for (int x = 0; x < 32; ++x) {
                         int visibleCell = 0, exploredCell = 0;
@@ -884,17 +1081,22 @@ int run(int argc, char **argv) {
                                                   : V4{.015f, .02f, .025f, 1};
                         ui.rect(mx + x * 5, my + z * 5, 5, 5, color);
                     }
-                float sx = (scout.position.x + 128) / 256 * 160,
-                      sz = (scout.position.z + 128) / 256 * 160;
-                ui.rect(mx + sx - 2, my + sz - 2, 4, 4, {.1f, .65f, 1, 1});
-                auto scoutClip = camera.projection(float(w) / h) * camera.view() *
-                                 V4{scout.position.x, scout.position.y + 2.2f, scout.position.z, 1};
-                if (scoutClip.w > 0) {
+                const M4 viewProjection = camera.projection(float(w) / h) * camera.view();
+                constexpr float mapScale = 160 / (VisibilityMap::size * VisibilityMap::cell);
+                for (size_t i = 0; i < ScoutGroup::size && worldStats.pending == 0; ++i) {
+                    const V3 p = scoutGroup.scouts[i].position;
+                    const V4 marker = scoutGroup.selected[i] ? mint : V4{.2f, .8f, 1, 1};
+                    float sx = (p.x - VisibilityMap::origin) * mapScale,
+                          sz = (p.z - VisibilityMap::origin) * mapScale;
+                    ui.rect(mx + sx - 1.5f, my + sz - 1.5f, 3, 3, marker);
+                    const auto scoutClip = viewProjection * V4{p.x, p.y + 2.2f, p.z, 1};
+                    if (scoutClip.w <= 0)
+                        continue;
                     float px = (scoutClip.x / scoutClip.w * .5f + .5f) * w,
                           py = (.5f - scoutClip.y / scoutClip.w * .5f) * h;
                     if (px > 20 && px < w - 60 && py > 20 && py < h - 20) {
-                        ui.rect(px - 3, py - 3, 6, 6, {.1f, .65f, 1, 1});
-                        ui.text(px - 15, py - 14, "SCOUT", 1, {.2f, .8f, 1, 1});
+                        ui.rect(px - 3, py - 3, 6, 6, marker);
+                        ui.text(px - 3, py - 14, std::to_string(i + 1), 1, marker);
                     }
                 }
             }
@@ -917,6 +1119,10 @@ int run(int argc, char **argv) {
         double captureMs = captureNow ? milliseconds(captureStart, Clock::now()) : 0;
         auto swapStart = Clock::now();
         SDL_GL_SwapWindow(platform.window);
+        if (visibility && camera.strategy && worldStats.pending == 0)
+            presentedStrategy = StrategyView{camera, float(w) / h};
+        else
+            presentedStrategy.reset();
         auto workEnd = Clock::now();
         pacer.wait(start);
         auto end = Clock::now();
@@ -932,7 +1138,8 @@ int run(int argc, char **argv) {
         if (titleUpdated) {
             auto titleStart = Clock::now();
             std::string title = std::string("PLEIADE ") + version + " | " +
-                                (camera.strategy ? "STRATEGY" : "FPS") + " | " + fixed(smoothedFrame) +
+                                (cinematic ? "CINEMATIC" : camera.strategy ? "STRATEGY" : "FPS") +
+                                " | " + fixed(smoothedFrame) +
                                 " ms | GPU " + (lastGPU >= 0 ? fixed(lastGPU) + " ms" : "--");
             if (o.seconds)
                 title += measuring ? " | MEASURE " + fixed(timer.measuredSeconds(elapsed), 1) + "/" +
@@ -952,7 +1159,7 @@ int run(int argc, char **argv) {
         sample.canopyMid = stats.canopyMid;
         sample.canopyFar = stats.canopyFar;
         sample.cameraEye = camera.eye();
-        sample.cameraTarget = camera.strategy ? camera.target : camera.pos + camera.forward();
+        sample.cameraTarget = camera.strategy || cinematic ? camera.target : camera.pos + camera.forward();
         sample.fogVisible = visibility ? visibility->visibleCount : 0;
         sample.fogExplored = visibility ? visibility->exploredCount : 0;
         sample.fogRejected = stats.fogRejected;

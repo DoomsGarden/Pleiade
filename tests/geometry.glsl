@@ -2,15 +2,21 @@
 precision highp float;
 precision highp int;
 precision highp sampler2D;
+precision highp sampler2DArray;
 layout(location=0) in vec3 aPosition;
 layout(location=1) in vec3 aNormal;
 layout(location=2) in mat4 aModel;
 layout(location=6) in vec4 aColor;
 layout(location=7) in vec4 aSurface;
+layout(location=8) in vec2 aUV;
 uniform mat4 uVP;
 uniform float uTime;
+uniform float uWind;
 out vec3 rasterPosition;
 out vec3 rasterLocal;
+out vec2 rasterUV;
+flat out vec3 objectDimensions;
+flat out vec3 objectCenter;
 flat out vec2 coverage;
 flat out mat4 objectModel;
 flat out mat3 objectNormals;
@@ -21,13 +27,15 @@ flat out vec3 surface;
 void main(){
  vec4 p=aModel*vec4(aPosition,1.0);
  coverage=vec2(aSurface.y,aColor.a);objectModel=aModel;atlasView=aSurface.w;
- if(aSurface.z>9.5){
+ if(abs(aSurface.z-10.0)<.1){
    float az=mod(aSurface.w,16.0)*6.2831853/16.0,el=-1.5707963+floor(aSurface.w/16.0)*3.14159265/4.0;
    vec3 d=vec3(cos(el)*sin(az),sin(el),cos(el)*cos(az)),r=vec3(cos(az),0.0,-sin(az)),u=cross(d,r);
    p=aModel*vec4(r*aPosition.x+u*aPosition.y,1.0);
  }
  // Orthogonal rotation + nonuniform scale: inverse transpose without per-vertex inverse.
  vec3 scale2=vec3(dot(aModel[0].xyz,aModel[0].xyz),dot(aModel[1].xyz,aModel[1].xyz),dot(aModel[2].xyz,aModel[2].xyz));
+ objectDimensions=sqrt(scale2);
+ objectCenter=aModel[3].xyz;
  objectNormals=mat3(aModel[0].xyz/scale2.x,aModel[1].xyz/scale2.y,aModel[2].xyz/scale2.z);
  worldNormal=normalize(objectNormals*aNormal);
  if(aSurface.w>0.5 && aSurface.w<1.5 && aSurface.z<9.5){
@@ -40,7 +48,15 @@ void main(){
    float tip=aPosition.y+.5;
    p.x+=sin(uTime*1.8+p.x*.35+p.z*.2)*.16*tip*tip;
  }
+ float leafLayer=aSurface.z-20.0;
+ bool flexible=(leafLayer>=-.5&&leafLayer<4.5)||(leafLayer>=13.5&&leafLayer<15.5)||(leafLayer>=17.5&&leafLayer<19.5);
+ if(flexible&&uWind>.0){
+  float tip=clamp(aPosition.y+.5,0.0,1.0);
+  vec2 phase=vec2(p.x*.51+p.z*.27,p.z*.64-p.x*.18);
+  p.xz+=.038*uWind*tip*tip*sin(phase+uTime*vec2(1.63,2.21));
+ }
  rasterLocal=aPosition;
+ rasterUV=aUV;
  rasterPosition=p.xyz;
  color=aColor.rgb;surface=aSurface.xyz;gl_Position=uVP*p;
 }

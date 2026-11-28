@@ -8,6 +8,9 @@ export async function run(api){
  for(const setting of ['water','shadows','materials','shadowSoft']){api.state[setting]=false;const pixels=api.readPixels();check(setting+' modifica imagen',diff(initial,pixels)>20);api.state[setting]=true;}
  api.setTime(3);check('ondas animadas',diff(initial,api.readPixels())>20);api.setTime(0);
  for(const name of ['materials','building','shore']){api.useScene(name);check('escena '+name,api.readPixels().some(x=>x!==0));}
+ api.useScene('building');api.state.shadows=false;const clearFoundation=api.readPixels();
+ api.state.shadows=true;check('sombras cambian el contacto de la edificación',diff(clearFoundation,api.readPixels())>20);
+ for(const biome of ['forest','desert','snow','tropical','bamboo']){api.useBiome(biome);api.render();check('bioma '+biome,api.gl.getError()===0);}
  for(const name of ['eco','balanced','detail']){api.setQuality(name);api.render();check('calidad '+name,api.gl.getError()===0);}
  api.setQuality('eco');api.useScene('shore');api.state.paused=false;api.state.animation=true;api.state.ssr=false;
  out.textContent='PASS — '+results.length+' comprobaciones\n'+JSON.stringify(results,null,2);

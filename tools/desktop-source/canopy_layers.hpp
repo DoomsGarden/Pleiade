@@ -69,9 +69,11 @@ inline std::array<float, 3> canopyWeights(float pixels) {
     return {nearWeight, (1 - nearWeight) * middle, (1 - nearWeight) * (1 - middle)};
 }
 inline float canopyPixels(const Camera &camera, float height, V3 center, V3 scale) {
-    float distance = std::max(length(center - camera.eye()), .1f),
+    const V3 toCenter=center-camera.eye();
+    const V3 forward=camera.strategy?unit(camera.target-camera.eye()):camera.forward();
+    float distance=std::max({dot(toCenter,forward),length(toCenter)*.72f,.1f}),
           diameter = .9f * std::max({scale.x, scale.y, scale.z});
-    float focal = height / (2 * std::tan((camera.strategy ? 48.f : 62.f) * pi / 360));
+    float focal = height / (2 * std::tan(camera.verticalFov() * .5f));
     return diameter * focal / distance;
 }
 // RGBA = object-space normal (signed float), nearest surface depth + 0.5; empty alpha=0.

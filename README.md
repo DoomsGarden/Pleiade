@@ -2,11 +2,19 @@
 
 Pléiade es un motor gráfico propio. Este repositorio conserva el visor WebGL 2, su paquete Android y la fuente C++ recuperada de la base PC.
 
-## Android `0.000.00.009`
+## Instaladores de prueba
 
-La APK de prueba incluye el visor y los recursos para usarlo sin conexión. Arranca en modo Ahorro. Requiere Android 7 o posterior y un WebView actualizado con WebGL 2. [Descargar desde GitHub Releases](https://github.com/DoomsGarden/Pleiade/releases/tag/v0.000.00.009)
+La APK y el instalador EXE x64 de Windows incluyen el visor WebGL y sus recursos para usarlo sin conexión. Android requiere la versión 7 o posterior y un WebView con WebGL 2. Windows requiere Microsoft Edge WebView2 Runtime. [Descargas en GitHub Releases](https://github.com/DoomsGarden/Pleiade/releases)
 
-La firma del paquete y los recursos están verificados. La instalación y los FPS siguen pendientes de prueba en el POCO F7 y la Galaxy Tab A9+. El visor y la APK comparten la numeración `0.000.00.000`.
+La demo nativa de C++ se distribuyó en un paquete x64 con SDL2, materiales y los tres recorridos de prueba. [Paquete nativo .018](https://github.com/DoomsGarden/Pleiade/releases/tag/v0.000.00.018)
+
+- **Orilla** permite explorar una cuenca de 104 m de lado en modo lago, río o cascada. En **Ajustes → Mirar bajo el agua** se puede inspeccionar el fondo. En **Río** y **Cascada**, elige **Pasarela de madera** o **Puente romano** para ver el cruce aguas arriba, con apoyos adaptados a la semilla. **Ver cruce** vuelve a encuadrarlo.
+- **Edificación** permite alternar entre la cabaña, la casa de teja, el refugio de piedra y el pabellón abierto. **Biomas** abre cinco paisajes que se regeneran con la semilla del mundo.
+- En **Ajustes → Estación y clima** se puede seleccionar la estación, el tipo de precipitación y la cobertura de nubes. Elegir lluvia o nieve con el cielo despejado propone una cobertura del 70 %. La precipitación empieza sobre el 40 % de cobertura y gana intensidad hasta el 95 %. Puedes mantener el reloj celeste detenido mientras cambian las nubes. En **Materiales**, el mismo panel permite desprender una rama de prueba y restaurarla.
+
+Las sombras suavizadas atenúan el borde de cobertura y estabilizan la corrección en superficies rasantes. En C++, la cámara estratégica concentra la resolución cerca del jugador y las muestras de contacto cubren dos distancias.
+
+Las pruebas de rendimiento en la tablet quedan pendientes. Los instaladores comparten la versión del visor publicada en GitHub.
 
 ## Archivos del proyecto
 
@@ -14,10 +22,13 @@ La firma del paquete y los recursos están verificados. La instalación y los FP
 | --- | --- |
 | `dist/` | Visor WebGL 2 y recursos listos para servir. |
 | `android/` | Contenedor Android y script para compilar y firmar. |
+| `windows/` | [Contenedor WebView2 e instalador x64](windows/README.md). |
+| `assets/blender/` | Biblioteca editable de materiales y escena de muestras. |
 | `tools/desktop-source/` | Renderer y generación procedural C++ de la base PC `0.003.0.17`, con los cambios recuperados. |
 | `tools/` | Exportador de escenas y preparación de materiales y shaders. |
 | `tests/` | Pruebas y resultados de render de las revisiones recuperadas. |
 | `AGENTS.md` | Instrucciones del proyecto para Codex. |
+| `ROADMAP.md` | [Frentes de desarrollo y revisión por parche](ROADMAP.md). |
 | `CHANGELOG.md` | [Historial de cambios y pruebas](CHANGELOG.md). |
 
 ## Visor y pruebas
@@ -36,6 +47,26 @@ npm test
 PLEIADE_ANDROID_MOCK=1 node tests/runtime_check.mjs
 ```
 
+### Vuelo atmosférico · candidato `0.000.00.019`
+
+En **Ajustes → Cielo y mundo → Volar por la escena**, la cámara toma la posición y dirección actuales. Mantén **WASD** para desplazarte y **E/Q** para subir o bajar. Arrastra para mirar. En pantalla táctil se pueden mantener pulsados los controles de movimiento y arrastrar la vista con otro dedo. **Salir del vuelo** o Esc recupera la cámara anterior.
+
+La cámara mantiene margen sobre el terreno y el agua. Puedes despegar desde las escenas locales y ascender hasta 6 km sobre el nivel de referencia, por encima de las dos capas de nubes. El recorrido conserva los límites horizontales de las escenas de prueba.
+
+En **Estación y clima**, eleva **Cobertura de nubes**. En **Cielo y mundo**, fija la altura de inspección en **2.200 m** y pulsa **Volar por la escena**. Arrastra para mirar hacia el lago a través de la capa inferior. Repite a **350 m** para ver la orilla desde debajo de la capa. El visor arranca con cielo despejado. Desde `0.000.00.023`, las nubes que quedan delante de una ventana también atenúan su reflejo.
+
+Desde `0.000.00.029`, fija **Altura de inspección** en **6.000 m** y **Campo de visión** en **8°**. Arrastra hacia arriba o usa la flecha abajo con el lienzo enfocado para mirar verticalmente al suelo. Puedes girar ese encuadre y desplazarlo con dos dedos. **Volar por la escena** toma el mismo rumbo e inclinación.
+
+## Regenerar materiales y escenas
+
+Blender genera los mapas de color, opacidad, normales tangentes y rugosidad del atlas. El exportador C++ actualiza las mallas y las escenas de referencia del visor desde el renderer.
+
+```sh
+blender -b -t 2 -P tools/blender/bake_surfaces.py -- dist/assets assets/blender/pleiade-surfaces.blend
+python3 tools/prepare_shaders.py
+python3 tools/prepare_desktop_demo.py build/materials
+./build/pleiade-export-preview build/materials dist/assets
+```
 ## GitHub Pages
 
 En **Actions → Visor en GitHub Pages**, selecciona `main`. Para publicar una versión nueva, indica la etiqueta, el SHA revisado, el ID de **Engine checks** aprobado para ese SHA y la referencia a la valoración de Vésper y Lumen. Activa **Publicar el visor en GitHub Pages**. Una misma ejecución prepara `dist/`, crea la versión de prueba en Releases y publica Pages. Con la casilla desactivada puedes revisar el paquete.
@@ -64,6 +95,14 @@ python3 tools/prepare_desktop_demo.py build/materials
 ./build/pleiade --water-demo --materials --asset-dir build/materials
 ```
 
-En Windows, un generador como Visual Studio deja el ejecutable en `build/Release/pleiade.exe`. SDL2 debe estar disponible al ejecutar. La distribución original de PC y sus texturas de 1024 px quedan pendientes de recuperar. La compilación de Windows queda pendiente de probar.
+La base C++ incluye tres recorridos de prueba. Los controles del patio siguen el teclado y el ratón. En la vista estratégica, el botón derecho gira la cámara y la rueda ajusta el zoom.
+
+| Recorrido | Inicio y controles |
+| --- | --- |
+| Primera persona | `./build/pleiade --walk-demo`. WASD para caminar, Mayús para correr, Espacio para saltar, botón derecho para mirar y Tab para alternar la cámara. Desde la entrada, avanza con W hasta el dintel bajo. El vano deja pasar al jugador a pie y el dintel frena un salto desde debajo. |
+| Estrategia | `./build/pleiade --fow-demo`. En el candidato `0.000.00.020`, haz clic en un explorador y usa Mayús+clic para añadir otros. Haz clic sobre terreno accesible para ordenar el desplazamiento. El minimapa distingue los exploradores seleccionados. |
+| Cinemática | `./build/pleiade --water-demo --asset-dir build/materials --cinematic --no-hud`. La secuencia reproduce dos tomas en el renderer. Con `--cinematic-time 6.8` puedes saltar al corte. Al usar `--frames`, el tiempo avanza a pasos fijos de 1/60 s. |
+
+En Windows, un generador como Visual Studio deja el ejecutable en `build/Release/pleiade.exe`. SDL2 debe estar disponible al ejecutar. La versión de prueba se compiló de forma cruzada para Windows x64. Queda pendiente ejecutarla en un equipo Windows. La distribución original de PC y sus texturas de 1024 px quedan pendientes de recuperar.
 
 Consulta el [historial](CHANGELOG.md) y el [manifiesto de materiales](dist/assets/manifest.json) para ver procedencia, créditos y límites conocidos.

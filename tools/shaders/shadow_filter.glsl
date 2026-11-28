@@ -18,10 +18,13 @@ float visibility(vec3 n){
    // This keeps the filter continuous across texel boundaries with nine reads.
    vec2 tent=max(vec2(0.0),vec2(1.5)-abs(offset-phase));
    float weight=uShadowSoft!=0?tent.x*tent.y:1.0;
-   float receiver=q.z+dot(gradient,centre-q.xy);
+   // Silhouettes and nearly edge-on surfaces can give unstable plane slopes.
+   float receiver=q.z+clamp(dot(gradient,centre-q.xy),-.007,.007);
    float visible=(receiver-bias<=texture(uShadow,centre).r)?1.0:0.0;
    if(any(lessThan(centre,vec2(0.0)))||any(greaterThan(centre,vec2(1.0))))visible=1.0;
    sum+=weight*visible;total+=weight;
  }
- return sum/max(total,.00001);
+ vec2 padding=min(q.xy,1.0-q.xy);
+ float insideMap=smoothstep(0.0,.055,min(padding.x,padding.y));
+ return mix(1.0,sum/max(total,.00001),insideMap);
 }

@@ -9,6 +9,19 @@ vec4 cachedCloud(vec3 direction){
 }
 vec3 cloudSky(vec3 background,vec3 origin,vec3 direction){
  if(uCloudAmount<=0.0)return background;
- vec4 cloud=uCloudCached!=0?cachedCloud(direction):cloudVolume(origin,direction);
+ // Reflections viewed from high above the surface sample the clouds from the shading point.
+ bool nearObserver=abs(origin.y-uSkyObserver.y)<96.0;
+ vec4 cloud=uCloudCached!=0&&nearObserver?cachedCloud(direction):cloudVolume(origin,normalize(direction),cloudReach);
  return cloud.rgb+background*cloud.a;
+}
+vec4 cloudToSurface(vec3 origin,vec3 ray,float distance){
+ if(uCloudAmount<=0.0)return clearCloud;
+ vec2 lower=cloudInterval(origin.y,ray.y,cloudHeights(0));
+ vec2 upper=cloudInterval(origin.y,ray.y,cloudHeights(1));
+ bool hitsLower=lower.x<lower.y,hitsUpper=upper.x<upper.y;
+ if((!hitsLower||distance<=lower.x)&&(!hitsUpper||distance<=upper.x))return clearCloud;
+ // The panorama represents the entire ray. A surface can reuse it only
+ // when it is behind every intersected layer.
+ if(uCloudCached!=0&&(!hitsLower||distance>=lower.y)&&(!hitsUpper||distance>=upper.y))return cachedCloud(ray);
+ return cloudVolume(origin,ray,distance);
 }

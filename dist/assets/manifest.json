@@ -1,6 +1,6 @@
 {
   "desktop_base": "0.003.0.17",
-  "viewer_version": "0.000.00.009",
+  "viewer_version": "0.000.00.035",
   "texture_size": 512,
   "material_sources": [
     {
@@ -37,13 +37,25 @@
       "height_source_mode": "I;16"
     }
   ],
-  "desktop_shader_sha256": "c1b25cd4157adef85770eeab2fb79faee46b8392199e3057f23763c6f2c3b9a8",
+  "desktop_shader_sha256": "20a3829a16c784b9d071f5230e0c9792a8aae8fb69bb1171f0ae93ae605aa54b",
   "limits": [
-    "Escenas estáticas exportadas: no es el motor de juego completo.",
+    "Escenas de referencia y cinco biomas compactos por semilla.",
     "Texturas 512²; mapas PC 1024².",
-    "Sin streaming, FoW ni selección de capas por distancia.",
+    "Niveles de detalle por tamaño proyectado. Sin streaming de regiones ni FoW en el visor.",
     "Reflejos SSR experimentales, desactivados inicialmente.",
     "Sombras de contacto heredadas de PC: artefactos pendientes.",
-    "Solo cámara exterior; agua sin simulación de fluidos."
+    "Cuenca con transporte de flotantes y cámara sumergible. Caudal parametrizado."
+  ],
+  "baked_material_sources": [
+    {
+      "asset": "pine_bark",
+      "source": "https://polyhaven.com/a/pine_bark",
+      "license": "CC0-1.0",
+      "author": "Dimitrios Savva",
+      "layers": [
+        5,
+        6
+      ]
+    }
   ]
 }

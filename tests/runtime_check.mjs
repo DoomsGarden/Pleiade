@@ -1,23 +1,48 @@
 // Unit-test the JS resource/state layer with a strict mock. This is NOT a GPU/browser test.
 import fs from 'node:fs/promises';import assert from 'node:assert/strict';
-let id=0,boundFbo=null,activeUnit=0,currentProgram=null;const attachments=new Map(),textures=new Map(),buffers=new Map();let drawCalls=0,submittedIndices=0;const uniformWrites=new Map();
+import {copyPrototype, createBiome, terrainPieces} from '../dist/biomes.js';
+import {climateAt} from '../dist/climate.js';
+import {channel,lakeBank,waterBase,channelWaterExtent,createWatershed,driftSamples} from '../dist/watershed.js';
+import {plantContact} from '../dist/plant_contact.js';
+import {fly} from '../dist/flight.js';
+import {createRiverBridge} from '../dist/river_bridge.js';
+import {cloudTransmission,generateWorld} from '../dist/celestial.js';
+const weatherDraws=[];
+let id=0,boundFbo=null,activeUnit=0,currentProgram=null;const attachments=new Map(),textures=new Map(),buffers=new Map();let drawCalls=0;const uniformWrites=new Map();
+let boundVao,sceneSubmissions,shadowPasses=0;
+const instanceBuffers=new WeakMap(), instanceData=new WeakMap();
 const constants=new Map();const mk=()=>({id:++id});const methods={NO_ERROR:0,
  createFramebuffer:()=>{const f=mk();attachments.set(f,new Set());return f;},bindFramebuffer:(_,f)=>boundFbo=f,
  activeTexture:u=>activeUnit=u-gl.TEXTURE0,bindTexture:(_,t)=>textures.set(activeUnit,t),framebufferTexture2D:(_,__,___,t)=>attachments.get(boundFbo).add(t),
  createProgram:()=>({...mk(),samplers:new Map(),shaders:[]}),createShader:()=>mk(),shaderSource:(s,source)=>s.source=source,attachShader:(p,s)=>p.shaders.push(s),
- linkProgram:p=>{for(const s of p.shaders)for(const m of s.source.matchAll(/uniform sampler2D (\w+)/g))p.samplers.set(m[1],0);},getShaderParameter:()=>true,getProgramParameter:()=>true,
+ linkProgram:p=>{for(const s of p.shaders)for(const m of s.source.matchAll(/uniform sampler2D(?:Array)? (\w+)/g))p.samplers.set(m[1],0);},getShaderParameter:()=>true,getProgramParameter:()=>true,
  getUniformLocation:(p,n)=>({p,n}),uniform1i:(l,v)=>{uniformWrites.set(l.n,v);if(l.p.samplers.has(l.n))l.p.samplers.set(l.n,v);},
- uniform1f:(l,v)=>{assert(Number.isFinite(v));uniformWrites.set(l.n,v);},uniform3fv:(l,v)=>{assert(v.length===3&&Array.from(v).every(Number.isFinite));uniformWrites.set(l.n,[...v]);},
+ uniform1f:(l,v)=>{assert(Number.isFinite(v));uniformWrites.set(l.n,v);},uniform3fv:(l,v)=>{assert((l.n==='uWaterContacts[0]'?v.length%3===0:v.length===(l.n==='uDrift[0]'?30:3))&&Array.from(v).every(Number.isFinite));uniformWrites.set(l.n,[...v]);},
+ uniform2f:(l,a,b)=>{assert(Number.isFinite(a)&&Number.isFinite(b));uniformWrites.set(l.n,[a,b]);},
  uniformMatrix4fv:(_,__,m)=>assert(m.length===16&&Array.from(m).every(Number.isFinite),'finite matrix'),
- useProgram:p=>currentProgram=p,drawElementsInstanced:(_,count,__,___,n)=>{assert(count>0&&n>0);submittedIndices+=count*n;draw();},drawArrays:()=>draw(),
+ useProgram:p=>currentProgram=p,drawElementsInstanced:(_,count,__,___,n)=>{
+  assert(count>0&&n>0);
+  if(sceneSubmissions&&boundFbo?.isScene)sceneSubmissions.push({count,data:instanceData.get(instanceBuffers.get(boundVao))});
+  draw();
+ },drawArrays:(mode,first,count)=>{
+  if(mode===gl.POINTS)weatherDraws.push([uniformWrites.get('uWeatherKind'),count]);
+  draw();
+ },drawElements:()=>draw(),
+ enable:mode=>{if(mode===gl.POLYGON_OFFSET_FILL)shadowPasses++;},
  getParameter:p=>p===gl.VERSION?'MOCK (not a GPU)':4096,getError:()=>0,isContextLost:()=>false,getExtension:()=>({}),checkFramebufferStatus:()=>gl.FRAMEBUFFER_COMPLETE,
- createTexture:mk,createBuffer:mk,createVertexArray:mk,bindBuffer:(target,b)=>buffers.set(target,b),bufferData:(target,data)=>{assert(buffers.has(target));assert(data.byteLength>0);},
+ createTexture:mk,createBuffer:mk,createVertexArray:mk,bindVertexArray:vao=>boundVao=vao,
+ drawBuffers:outputs=>{if(boundFbo)boundFbo.isScene=outputs.length===3;},
+ vertexAttribDivisor:(index)=>{if(index===2){const buffer=buffers.get(gl.ARRAY_BUFFER);instanceBuffers.set(boundVao,buffer);instanceData.set(buffer,null);}},
+ bindBuffer:(target,b)=>buffers.set(target,b),bufferData:(target,data)=>{
+  const buffer=buffers.get(target);assert(buffer&&data.byteLength>0);
+  if(instanceData.has(buffer))instanceData.set(buffer,data);
+ },
 };function draw(){if(boundFbo)for(const unit of currentProgram.samplers.values())assert(!attachments.get(boundFbo).has(textures.get(unit)),'texture feedback loop');drawCalls++;}
 const gl=new Proxy(methods,{get(t,p){if(p in t)return t[p];if(/^[A-Z_0-9]+$/.test(p)){if(!constants.has(p))constants.set(p,100+constants.size);return constants.get(p);}return ()=>{};}});
 const elements=new Map();function el(id){if(!elements.has(id))elements.set(id,{id,hidden:false,checked:true,value:'balanced',width:0,height:0,textContent:'',dataset:{},listeners:{},style:{},classList:{toggle(){}},setAttribute(){},querySelector(){return el('child-'+id)},addEventListener(n,f){this.listeners[n]=f},getContext(){return gl},setPointerCapture(){}});return elements.get(id);}
-const buttons=['shore','materials','building'].map(name=>{const b=el(name);b.dataset.scene=name;return b;});
+const buttons=['shore','materials','building','biomes'].map(name=>{const b=el(name);b.dataset.scene=name;return b;});
 globalThis.document={hidden:false,getElementById:el,querySelectorAll:()=>buttons,addEventListener(){}};
-globalThis.window=globalThis;globalThis.innerWidth=1200;globalThis.innerHeight=800;globalThis.devicePixelRatio=2;globalThis.location={search:''};globalThis.addEventListener=()=>{};globalThis.requestAnimationFrame=()=>1;globalThis.cancelAnimationFrame=()=>{};
+globalThis.window=globalThis;globalThis.innerWidth=1200;globalThis.innerHeight=800;globalThis.devicePixelRatio=2;globalThis.location={search:''};const windowEvents={};globalThis.addEventListener=(type,listener)=>{windowEvents[type]=listener;};let nextFrame;globalThis.requestAnimationFrame=callback=>{nextFrame=callback;return 1;};globalThis.cancelAnimationFrame=()=>{};
 const androidFiles=[];
 const androidMock=process.env.PLEIADE_ANDROID_MOCK==='1';
 let openedWorld=false;
@@ -32,12 +57,35 @@ globalThis.fetch=async path=>{const b=await fs.readFile(new URL('../dist/'+path,
 await import('../dist/app.js');
 for(let i=0;i<100&&!globalThis.pleiade.state.ready;i++)await new Promise(r=>setTimeout(r,10));
 assert(pleiade.state.ready,JSON.stringify(pleiade.state.errors));
+// The wave switch must never freeze either precipitation or river transport.
+pleiade.setWaterMode('river');pleiade.setClimate('winter','snow');
+el('animation').checked=false;el('animation').onchange();
+assert(pleiade.report().shore.contacts>=2);
+nextFrame(100);const frozenWave=uniformWrites.get('uWaterTime');
+const beforeDrift=uniformWrites.get('uDrift[0]'),beforeFall=uniformWrites.get('uTime');
+nextFrame(150);
+assert.equal(uniformWrites.get('uWaterTime'),frozenWave);
+assert.notDeepEqual(uniformWrites.get('uDrift[0]'),beforeDrift);
+assert(uniformWrites.get('uTime')>beforeFall);
+assert(uniformWrites.get('uFlowTime')>0);
+el('animation').checked=true;el('animation').onchange();nextFrame(200);
+assert(uniformWrites.get('uWaterTime')>frozenWave);
+pleiade.setWaterMode('lake');pleiade.setClimate('summer','clear');
+pleiade.render();assert.equal(uniformWrites.get('uWet'),true);
+el('animation').checked=false;el('animation').onchange();
+nextFrame(250);const wetTime=uniformWrites.get('uWetTime');
+nextFrame(300);
+assert.equal(uniformWrites.get('uWetTime'),wetTime,'wet beach freezes with the swell');
+assert.equal(uniformWrites.get('uWaterTime'),wetTime,'wet beach and water share a phase');
+el('animation').checked=true;el('animation').onchange();
 if(androidMock){
  assert.equal(pleiade.state.quality,'eco');
  el('import-world').onclick({preventDefault(){}});assert(openedWorld);
  const initial=pleiade.world;
  pleiade.importWorldText(JSON.stringify({...initial,elapsedDays:.25}));assert.equal(pleiade.world.elapsedDays,.25);
  pleiade.importWorldText('invalid JSON');assert.equal(pleiade.world.elapsedDays,.25);
+ el('star-radius').value='1.25';el('star-radius').oninput();el('star-radius').onchange();
+ el('satellite-radius').value='1.8';el('satellite-radius').oninput();el('satellite-radius').onchange();
  el('report').onclick();el('export-world').onclick();el('capture').onclick();pleiade.render();
  await new Promise(resolve=>setImmediate(resolve));
  const report=androidFiles.find(file=>file.name.endsWith('-informe.json'));
@@ -46,7 +94,10 @@ if(androidMock){
  const {viewer_version}=JSON.parse(await fs.readFile(new URL('../dist/assets/manifest.json',import.meta.url),'utf8'));
  assert.match(viewer_version,/^\d\.\d{3}\.\d{2}\.\d{3}$/);
  assert.equal(JSON.parse(report.bytes).viewer,viewer_version);
- assert.equal(JSON.parse(worldExport.bytes).elapsedDays,.25);
+ const exported=JSON.parse(worldExport.bytes);
+ assert.equal(exported.elapsedDays,.25);
+ assert.equal(exported.starRadiusDegrees,1.25);
+ assert.equal(exported.satelliteRadiusDegrees,1.8);
  assert.equal(snapshot.mime,'image/png');assert.equal(snapshot.bytes[0],137);
  pleiade.applyWorld(initial);
  console.log('PASS: Android file bridge, valid and invalid world import, PNG, JSON and eco startup. Mock only.');
@@ -61,12 +112,20 @@ canvas.onpointercancel({pointerId:1});canvas.onpointercancel({pointerId:2});
 globalThis.innerWidth=800;globalThis.innerHeight=1280;pleiade.render();assert(canvas.height>canvas.width);assert.equal(pleiade.state.errors.length,0);assert(drawCalls>20);
 console.log('PASS: JS initialization, 9 scene/quality combinations, framebuffer feedback checks, finite matrices, pointer orbit/pinch/cancel and portrait resizing. Mock only; no WebGL GPU validation.');
 
-pleiade.useScene('shore');
-pleiade.setQuality('balanced');submittedIndices=0;pleiade.render();
-const balancedIndices=submittedIndices;
+pleiade.useScene('materials');
+pleiade.camera.distance=3.5;
+pleiade.setQuality('balanced');pleiade.render();
+const balancedTriangles=pleiade.report().render.trianglesPerPass;
 const inspectionCamera=pleiade.camera;
-pleiade.setQuality('eco');submittedIndices=0;pleiade.render();
-assert(submittedIndices<balancedIndices*.65,'eco must submit substantially fewer foliage indices');
+pleiade.setQuality('eco');pleiade.render();
+const ecoRender=pleiade.report().render;
+const geometry=JSON.parse(await fs.readFile(new URL('../dist/assets/scene.json',import.meta.url),'utf8'));
+const meshById=new Map(geometry.meshes.map(mesh=>[mesh.id,mesh]));
+const allFar=geometry.shore.filter(part=>part.visible!==false).reduce((sum,part)=>{
+ const mesh=meshById.get(part.mesh);return sum+meshById.get(mesh.far??mesh.id).indices/3;
+},0);
+assert(ecoRender.trianglesPerPass<=allFar+39000,'eco respects the additional foliage transition budget');
+assert(ecoRender.trianglesPerPass<balancedTriangles&&ecoRender.needleBundles>0,'eco keeps individual nearby needles with fewer triangles');
 assert.equal(pleiade.camera,inspectionCamera,'quality changes preserve the viewing position');
 Object.assign(globalThis,{innerWidth:412,innerHeight:915,devicePixelRatio:2.625});
 pleiade.render();assert.equal(canvas.height,640);assert(canvas.width<canvas.height);
@@ -74,9 +133,299 @@ Object.assign(globalThis,{innerWidth:1536,innerHeight:960,devicePixelRatio:1});
 pleiade.render();assert.equal(canvas.width,640);assert(canvas.height<canvas.width);
 console.log('PASS: light foliage and stable camera with phone portrait and tablet landscape sizing.');
 
+// The first cloned tree at the shore used to lose its branches before culling.
+pleiade.setWaterMode('lake');
+pleiade.setQuality('detail');
+const branchBasin=createWatershed('lake',pleiade.world.seed),bankTree=[];
+const bankHeight=branchBasin.height(6,-19)-.055;
+copyPrototype(bankTree,geometry.plants.birch2,6,bankHeight,-19,4.6+2.4*Math.sin(.55)**2,0,.88);
+const bankBranch=bankTree.find(part=>part.section===4);
+const branchPosition=bankBranch.instance.slice(12,15);
+function drawAt(target,distance){
+ Object.assign(pleiade.camera,{target,distance,yaw:0,pitch:.06});
+ sceneSubmissions=[];
+ pleiade.render();
+ const result=sceneSubmissions;
+ sceneSubmissions=null;
+ return result;
+}
+function drawsPart(groups,part,indexCount){
+ return groups.some(({data,count})=>{
+  if(count!==indexCount)return false;
+  for(let offset=0;offset<data.length;offset+=24){
+   if(part.instance.every((value,index)=>Math.abs(value-data[offset+index])<.00002))return true;
+  }
+  return false;
+ });
+}
+for(const [season,weather] of [['summer','clear'],['autumn','rain'],['winter','snow']]){
+ pleiade.setClimate(season,weather);
+ assert(drawsPart(drawAt(branchPosition,24),bankBranch,24),'the shore branch keeps its coarse mesh at distance');
+ assert(drawsPart(drawAt(branchPosition,2),bankBranch,meshById.get(bankBranch.mesh).indices),'the shore branch can regain its detailed mesh');
+}
+pleiade.setClimate('summer','clear');
+const forest=createBiome('forest',pleiade.world.seed,geometry).objects;
+const trunks=new Set(['birch','spruce','pine'].map(kind=>geometry.plants[kind][0].mesh));
+for(let i=0;i<forest.length;i++){
+ const part=forest[i];
+ if(part.section!==1||!trunks.has(part.mesh))continue;
+ let mainBranch=false,secondaryBranch=false;
+ for(let j=i+1;j<forest.length&&forest[j].section!==1;j++){
+  mainBranch||=forest[j].section===4;
+  secondaryBranch||=forest[j].section===5;
+ }
+ assert(mainBranch&&secondaryBranch,'trees keep their crown supports beyond the starting view');
+}
+console.log('PASS: shore branches stay visible on both detail tiers and forest trees retain their wooden supports.');
+
+const rockBuffer=await fs.readFile(new URL(`../dist/assets/mesh-${geometry.meshIds.rock}.vbo`,import.meta.url));
+let rockMinY=Infinity,rockMaxY=-Infinity;
+for(let i=4;i<rockBuffer.length;i+=geometry.vertexStride){
+ const y=rockBuffer.readFloatLE(i);
+ rockMinY=Math.min(rockMinY,y);rockMaxY=Math.max(rockMaxY,y);
+}
+for(const [mode,index] of ['lake','river','falls'].entries()){
+ const basin=createWatershed(index,12345);
+ assert.equal(basin.area,104);
+ const x=index==='lake'?-11:channel(-6);
+ assert(basin.height(x,-6)<waterBase(index,-6)-.43);
+ pleiade.setWaterMode(index);pleiade.render();assert.equal(uniformWrites.get('uWaterMode'),mode);
+ assert.equal(uniformWrites.get('uShoreWaterMode'),mode,'ground snow uses the visible water profile');
+ assert.equal(uniformWrites.get('uWet'),index==='lake');
+ assert.equal(pleiade.report().shore.mode,index);
+ const a=driftSamples(index,5), b=driftSamples(index,6);
+ if(index!=='lake'){
+  assert(b[2]<a[2]);assert(b[1]<a[1]);
+  assert(Math.abs(b[0]-channel(b[2]))<2.1);
+  const bed=createWatershed(index,pleiade.world.seed);
+  for(const z of [5.8,-9]){
+   const groups=drawAt([channel(z),waterBase(index,z),z],9);
+   let rock;
+   for(const {data} of groups)for(let i=0;i<data.length;i+=24){
+    if(data[i+22]===9&&Math.abs(data[i+14]-z)<.0001)rock=data.subarray(i,i+24);
+   }
+   assert(rock,'the exposed rock is rendered in the channel');
+   const [px,py,pz]=rock.slice(12,15);
+   assert(Math.abs(py+rock[5]*rockMinY-bed.height(px,pz)+.035)<.001,'the rock base is embedded in the channel bed');
+   assert(py+rock[5]*rockMaxY>waterBase(index,pz)+.08,'the grounded rock still breaks the water surface');
+  }
+ }
+}
+// A broad depression below the drop merges into the downstream river.
+const waterfall=createWatershed('falls',12345),river=createWatershed('river',12345);
+const poolZ=-6.5,poolX=channel(poolZ),poolExtent=channelWaterExtent(poolZ,'falls');
+assert(poolExtent>channelWaterExtent(poolZ,'river')+2);
+assert(waterfall.height(poolX,poolZ)<river.height(poolX,poolZ)-1.4);
+assert(waterfall.height(poolX+4.7,poolZ)<waterBase('falls',poolZ));
+assert(waterfall.height(poolX+poolExtent,poolZ)>waterBase('falls',poolZ)+.08);
+assert.equal(channelWaterExtent(-20,'falls'),channelWaterExtent(-20,'river'));
+// The mesh must end under dry ground even at the maximum wave setting.
+// Sample the actual mesh edge between rows as well as the beach beyond it.
+for(const seed of [0,17,182,800,1300,12345,99999]){
+ const {water,height}=createWatershed('lake',seed);
+ const rowStride=101*8,edgeOffset=100*8;
+ for(let i=edgeOffset;i+rowStride<water.vertices.length;i+=rowStride){
+  for(const t of [0,.5,1]){
+   const x=water.vertices[i]*(1-t)+water.vertices[i+rowStride]*t;
+   const z=water.vertices[i+2]*(1-t)+water.vertices[i+rowStride+2]*t;
+   assert(height(x,z)>.101,`water mesh edge should stay dry at seed ${seed}, z ${z}`);
+   for(let d=4;d<=24;d++)assert(height(lakeBank(z)+d,z)>.091,'dry beach stays above the wave envelope');
+  }
+ }
+}
+el('dive').onclick();pleiade.render();assert.equal(uniformWrites.get('uUnderwater'),true);
+// The timber prototype sits upstream of the waterfall, with one dry approach on either side.
+for(const mode of ['river','falls']){
+ for(const seed of [0,7,182,12345,99999,4294967295]){
+  const bed=createWatershed(mode,seed);
+  const bridge=createRiverBridge(mode,bed,geometry.meshIds);
+  assert.equal(bridge.focus.length,3);
+  assert(bridge.objects.every(part=>part.instance.length===24&&part.instance.every(Number.isFinite)));
+  assert(bridge.objects.length>10&&bridge.objects.length<128,'the crossing uses a bounded instanced mesh budget');
+  assert(bridge.center[1]>18&&bridge.designWater>=waterBase(mode,bridge.center[1])+.343);
+  assert(bridge.clearance>0,'the lower beams clear design flood and maximum crest');
+  assert.equal(bridge.supports.length,2);
+  for(const support of bridge.supports){
+   const [x,,z]=support.center;
+   assert(support.bottom<bed.height(x,z)&&support.top>support.high,'each abutment joins the triangulated terrain');
+   assert(bed.height(x,z)>bridge.designWater,'abutments stay on land during the design flood');
+  }
+  assert.equal(bridge.approaches.length,2);
+  for(const approach of bridge.approaches){
+   const [x,y,z]=approach.outer;
+   assert(Math.abs(y-bed.height(x,z))<.07,'each approach meets the procedurally generated bank');
+   assert(Math.abs(approach.grade)<.26,'approach remains gentle');
+  }
+  const roman=createRiverBridge(mode,bed,geometry.meshIds,{style:'roman'});
+  assert(roman,`an arch site is available for ${mode}, seed ${seed}`);
+  assert.deepEqual(roman.center,bridge.center);
+  assert.deepEqual(roman.axis,bridge.axis);
+  assert(roman.clearance>0&&roman.designWater>=bridge.designWater);
+  assert.equal(roman.span,2*roman.arch.radius);
+  for(const {outer:[x,y,z],grade} of roman.approaches){
+   assert(Math.abs(y-bed.height(x,z))<.07,'each stone approach meets the bank');
+   assert(grade<=.24,'each stone approach stays within the grade limit');
+  }
+  assert(roman.meshes.length>0,'masonry includes a curved mesh');
+  for(const {id,vertices,indices} of roman.meshes){
+   assert(roman.objects.some(part=>part.mesh===id),'each generated mesh is instanced');
+   assert(vertices.length%8===0&&vertices.every(Number.isFinite));
+   assert(indices.length%3===0&&indices.every(i=>i<vertices.length/8));
+  }
+ }
+ pleiade.setWaterMode(mode);
+ assert.equal(el('bridge-controls').hidden,false);
+ assert.equal(el('bridge-view').hidden,false);
+ const bridge=createRiverBridge(mode,createWatershed(mode,pleiade.world.seed),geometry.meshIds);
+ el('dive').onclick();assert(pleiade.state.underwater);
+ el('bridge-view').onclick();
+ assert.deepEqual(pleiade.camera.target,bridge.focus);
+ assert(!pleiade.state.underwater);
+ const submitted=drawAt(bridge.focus,10);
+ for(const material of [27,28]){
+  assert(bridge.objects.some(part=>part.instance[22]===material&&drawsPart(submitted,part,meshById.get(part.mesh).indices)),
+   'both bridge materials go through the scene draw path');
+ }
+ const selector=el('bridge-style');
+ selector.value='roman';selector.onchange();
+ const roman=createRiverBridge(mode,createWatershed(mode,pleiade.world.seed),geometry.meshIds,{style:'roman'});
+ assert.deepEqual(pleiade.camera.target,roman.focus);
+ const romanSubmissions=drawAt(roman.focus,10);
+ for(const mesh of roman.meshes){
+  assert(roman.objects.some(part=>part.mesh===mesh.id&&drawsPart(romanSubmissions,part,mesh.indices.length)),
+   'the curved masonry goes through the scene draw path');
+ }
+ assert.equal(pleiade.report().shore.bridge,'roman');
+ pleiade.useScene('building');
+ assert.equal(el('bridge-controls').hidden,true);
+ pleiade.setWaterMode(mode);
+ assert.equal(el('bridge-controls').hidden,false);
+ assert.equal(selector.value,'roman');
+ pleiade.setAtmosphere({altitude:6000,fov:8});
+ selector.value='timber';selector.onchange();
+ assert.equal(pleiade.report().shore.bridge,'timber');
+ assert.deepEqual(pleiade.camera.target,bridge.focus);
+ assert(pleiade.report().celestial.opticalFov>8,'focusing the bridge widens a narrow inspection lens');
+ pleiade.setAtmosphere();
+}
+pleiade.setWaterMode('lake');
+assert.equal(createRiverBridge('lake',createWatershed('lake',12345),geometry.meshIds),null);
+assert.equal(el('bridge-controls').hidden,true);
+assert.equal(el('bridge-view').hidden,true);
+el('water').checked=false;el('water').onchange();pleiade.render();
+assert.equal(uniformWrites.get('uShoreWaterMode'),-1,'hide-water mode disables the shore snow mask');
+el('water').checked=true;el('water').onchange();
+for(const form of ['cabin','stone','shelter','house']){
+ pleiade.setBuildingForm(form);pleiade.render();assert.equal(pleiade.report().glassPanes,form==='cabin'?8:form==='house'?2:0);
+ assert.equal(uniformWrites.get('uShoreWaterMode'),-1,'dry scenes bypass the shore snow mask');
+}
+pleiade.useScene('materials');
+const target=geometry.shore.find(o=>o.section===5&&o.instance[12]>4&&o.instance[13]>2&&o.instance[14]>-8);
+const point=target.instance.slice(12,15),impulse=[1.35,.45,1.4];
+assert.equal(plantContact(geometry.shore,point,[0,0,0]),null);
+assert(pleiade.impact(point,impulse));pleiade.setTime(.8);assert(pleiade.report().detached>=2);
+el('restore-plant').onclick();pleiade.render();assert.equal(pleiade.report().detached,0);
+assert(climateAt('winter','clear',0).leaves<climateAt('summer','clear',0).leaves);
+pleiade.setClimate('winter','snow');pleiade.render();assert.equal(uniformWrites.get('uWeatherKind'),2);
+const sampleWeather=cover=>{
+ el('clouds').value=cover;
+ el('clouds').oninput();
+ weatherDraws.length=0;
+ pleiade.render();
+ return weatherDraws.slice();
+};
+assert.equal(el('clouds').value,.70,'choosing snowfall from a clear sky prepares cloud cover');
+const lightSnow=sampleWeather(.55);
+assert(lightSnow[0][1]>0&&lightSnow[0][1]<118);
+assert.deepEqual(sampleWeather(1),[[2,118]]);
+assert.deepEqual(sampleWeather(0),[],'no snowfall particles without cloud cover');
+pleiade.setClimate('summer','rain');
+assert.deepEqual(sampleWeather(1),[[1,146]]);
+assert(pleiade.report().climate.wet>0);
+assert.deepEqual(sampleWeather(0),[]);
+assert.equal(pleiade.report().climate.wet,0);
+
+for(const mode of ['lake','river','falls']){
+ pleiade.setWaterMode(mode);
+ assert.deepEqual(sampleWeather(1),[[1,146]]);
+ assert.equal(uniformWrites.get('uWeatherWater'),true);
+ assert.equal(uniformWrites.get('uWaterDepth'),4);
+}
+el('water').checked=false;el('water').onchange();
+assert.deepEqual(sampleWeather(1),[[1,146]],'hide-water mode retains precipitation');
+assert.equal(uniformWrites.get('uWeatherWater'),false,'hide-water mode ignores stale depth');
+el('water').checked=true;el('water').onchange();
+pleiade.useScene('building');
+assert.deepEqual(sampleWeather(1),[[1,146]]);
+assert.equal(uniformWrites.get('uWeatherWater'),false,'dry scenes ignore the shore depth');
+pleiade.setWaterMode('river');
+
+pleiade.setAtmosphere({altitude:15});
+assert.deepEqual(sampleWeather(1),[[1,146]],'low-altitude inspection still shows precipitation');
+pleiade.setAtmosphere({altitude:350});
+assert.deepEqual(sampleWeather(1),[],'particle box follows only nearby ground views');
+pleiade.useScene('materials');
+sampleWeather(0);
+pleiade.setClimate('autumn','clear');pleiade.render();assert.equal(uniformWrites.get('uWeatherKind'),3);
+pleiade.setClimate('summer','clear');
+console.log('PASS: watershed transport, building styles, seasons and detached branch hierarchy.');
+
+for(const biome of ['forest','desert','snow','tropical','bamboo']){
+ pleiade.useBiome(biome);pleiade.render();
+ assert.equal(pleiade.state.scene,'biomes');assert.equal(pleiade.state.biome,biome);
+ assert(pleiade.report().biome.rocks>0);assert(pleiade.report().render.trianglesPerPass>0);
+ if(biome!=='desert')assert(pleiade.report().biome.plants>0);
+ assert.equal(pleiade.report().biome.tiles,9);
+ if(biome==='tropical'){
+  const stats=pleiade.report().biome.vines;
+  assert(stats.links>0&&stats.hanging>0&&stats.climbing>0,'the jungle has bridges, hanging stems and rooted climbing vines');
+  pleiade.useBiome(biome);pleiade.render();assert.deepEqual(pleiade.report().biome.vines,stats);
+ }
+}
+for(const seed of [0,12345,4294967295]){
+ const side=13, cells=side-1;
+ const profile=(x,z)=>Math.sin(x*.1)+Math.cos(z*.07);
+ const {pieces,surfaceHeight}=terrainPieces(profile,seed,cells);
+ const replaced=terrainPieces(profile,seed,cells,pieces.map(piece=>(piece.variant+1)%9)).pieces;
+ assert.equal(new Set(pieces.map(piece=>piece.variant)).size,9);
+ function vertex(tile,x,z){return pieces[tile].vertices.slice((z*side+x)*8,(z*side+x+1)*8);}
+ for(let tile=0;tile<9;tile++)for(let i=0;i<=cells;i++){
+  if(tile%3<2)assert.deepEqual(vertex(tile,cells,i),vertex(tile+1,0,i));
+  if(tile<6)assert.deepEqual(vertex(tile,i,cells),vertex(tile+3,i,0));
+  const base=(i*side+cells)*8;
+  assert.deepEqual(pieces[tile].vertices.slice(base,base+8),replaced[tile].vertices.slice(base,base+8));
+  const [x,y,z]=vertex(tile,i,i);
+  assert(Math.abs(surfaceHeight(x,z)-y)<.00001);
+ }
+ assert.notDeepEqual(pieces[0].vertices,replaced[0].vertices);
+}
+pleiade.useScene('shore');
+console.log('PASS: all five procedural biomes select, build and render through the resource mock.');
+
 const original=JSON.parse(JSON.stringify(pleiade.world));
+const {starRadiusDegrees,satelliteRadiusDegrees,...legacy}=original;
+pleiade.applyWorld({...legacy,elapsedDays:.125});
+assert.deepEqual(pleiade.world,{...original,elapsedDays:.125});
+pleiade.applyWorld({...original,starRadiusDegrees:.05,satelliteRadiusDegrees:2});pleiade.render();
+assert.equal(uniformWrites.get('uSunRadius'),.05*Math.PI/180);
+assert.equal(uniformWrites.get('uMoonRadius'),2*Math.PI/180);
+assert.equal(el('star-radius-label').textContent,'0.05°');
+assert.equal(el('satellite-radius-label').textContent,'2.00°');
+assert.throws(()=>pleiade.applyWorld({...original,starRadiusDegrees:.04}));
+assert.throws(()=>pleiade.applyWorld({...original,satelliteRadiusDegrees:2.1}));
+assert.throws(()=>pleiade.applyWorld({...original,satelliteRadiusDegrees:null}));
+assert.equal(pleiade.world.satelliteRadiusDegrees,2);
 pleiade.applyWorld({...original,elapsedDays:0});pleiade.render();assert.equal(uniformWrites.get('uDaylight'),0);const night=uniformWrites.get('uLightColor');
 pleiade.applyWorld({...original,elapsedDays:.5});pleiade.render();assert.equal(uniformWrites.get('uDaylight'),1);assert(uniformWrites.get('uLightColor')[0]>night[0]);
+const clearLight=uniformWrites.get('uLightColor'),clearAmbient=uniformWrites.get('uSkyAmbient');
+const coverage=1,transmission=cloudTransmission(pleiade.world,uniformWrites.get('uSkyLightDirection'),coverage,undefined,pleiade.state.time);
+assert(transmission>0&&transmission<1,'test world casts a cloud shadow');
+pleiade.setAtmosphere({clouds:coverage});pleiade.render();
+assert.deepEqual(uniformWrites.get('uCloudLightColor'),clearLight,'cloud lighting keeps incoming radiance');
+assert.equal(uniformWrites.get('uCloudAmbient'),clearAmbient);
+assert.deepEqual(uniformWrites.get('uLightColor'),clearLight.map(value=>value*transmission),'surface lighting keeps cloud shadowing');
+assert.equal(uniformWrites.get('uSkyAmbient'),clearAmbient*(.5+.5*transmission));
+pleiade.setAtmosphere();
 assert.throws(()=>pleiade.applyWorld({...original,version:999}));assert.equal(pleiade.world.version,1);
 el('look-sky').onclick();pleiade.render();el('look-sky').onclick();pleiade.render();
 console.log('PASS: world restore, rejected import preserves active world, day/night lighting uniforms and sky camera.');
@@ -89,4 +438,220 @@ pleiade.setAtmosphere({clouds:.8,altitude:1200});pleiade.render();assert.equal(p
 pleiade.setAtmosphere({clouds:.8,altitude:1200,reuse:false});pleiade.render();assert.equal(pleiade.report().cloudCache.updates,built+1,'reference mode does not build cache');assert.equal(uniformWrites.get('uCloudCached'),false);
 pleiade.setAtmosphere({clouds:0});pleiade.render();assert.equal(pleiade.report().cloudCache.updates,built+1,'clear sky bypasses cache');
 pleiade.setAtmosphere({clouds:.8});pleiade.render();let count=pleiade.report().cloudCache.updates;pleiade.world.elapsedDays+=.3/pleiade.world.daySeconds;pleiade.render();assert.equal(pleiade.report().cloudCache.updates,count+1,'world clock invalidates');assert.equal(pleiade.report().cloudCache.width,256);
+const beforeClockImport={...pleiade.world},beforeClockUpdates=pleiade.report().cloudCache.updates;
+const cloudClock=uniformWrites.get('uCloudTime'),lightBeforeClockImport=uniformWrites.get('uSkyLightDirection');
+pleiade.applyWorld({...beforeClockImport,elapsedDays:beforeClockImport.elapsedDays/2,daySeconds:beforeClockImport.daySeconds*2});
+pleiade.render();
+assert.equal(uniformWrites.get('uCloudTime'),cloudClock);
+assert.notDeepEqual(uniformWrites.get('uSkyLightDirection'),lightBeforeClockImport);
+assert.equal(pleiade.report().cloudCache.updates,beforeClockUpdates+1,'new day length invalidates even at the same cloud time');
+pleiade.render();assert.equal(pleiade.report().cloudCache.updates,beforeClockUpdates+1,'unchanged clock still reuses the panorama');
+pleiade.applyWorld(beforeClockImport);
+pleiade.render();
+const stationarySky=pleiade.world.elapsedDays,cloudUpdates=pleiade.report().cloudCache.updates;
+const weatherTime=pleiade.state.time;
+pleiade.setTime(weatherTime+.3);
+assert.equal(pleiade.world.elapsedDays,stationarySky);
+assert.equal(uniformWrites.get('uCloudTime'),weatherTime+.3);
+assert.equal(pleiade.report().cloudCache.updates,cloudUpdates+1,'cloud motion advances while the celestial clock is stopped');
 console.log('PASS cloud-cache reuse, camera rotation, altitude/time invalidation, reference and disabled modes.');
+
+pleiade.useScene('shore');
+pleiade.render();
+const orbitEye=uniformWrites.get('uCameraEye'),orbitForward=uniformWrites.get('uCameraForward');
+el('fly').onclick();
+pleiade.render();
+assert.deepEqual(uniformWrites.get('uCameraEye'),orbitEye);
+assert.ok(orbitForward.every((v,i)=>Math.abs(v-uniformWrites.get('uCameraForward')[i])<1e-6));
+assert.deepEqual(uniformWrites.get('uDepthRange'),[.1,250]);
+const key=code=>({code,preventDefault(){}});
+pleiade.state.paused=false;
+nextFrame(325);
+windowEvents.keydown(key('KeyE'));
+nextFrame(350);
+assert(pleiade.report().flight.eye[1]>orbitEye[1]);
+windowEvents.blur();
+const afterBlur=pleiade.report().flight.eye;
+nextFrame(400);
+assert.deepEqual(pleiade.report().flight.eye,afterBlur);
+const rise=el('fly-rise'),finger={button:0,pointerId:5};
+rise.onpointerdown(finger);nextFrame(450);
+const afterTouch=pleiade.report().flight.eye;
+assert(afterTouch[1]>afterBlur[1]);
+rise.onpointercancel(finger);nextFrame(500);
+assert.deepEqual(pleiade.report().flight.eye,afterTouch);
+const savedYaw=pleiade.camera.yaw;
+canvas.onpointerdown({pointerId:19,clientX:200,clientY:200});
+canvas.onpointermove({pointerId:19,clientX:220,clientY:200});
+windowEvents.keydown(key('Escape'));
+canvas.onpointermove({pointerId:19,clientX:240,clientY:200});
+canvas.onpointerup({pointerId:19});
+assert.equal(pleiade.camera.yaw,savedYaw,'a flight drag cannot move the restored orbit camera');
+pleiade.render();
+assert.equal(pleiade.report().flight,null);
+assert.deepEqual(uniformWrites.get('uCameraEye'),orbitEye);
+for(const altitude of [350,6000]){
+  pleiade.setAtmosphere({altitude});
+  pleiade.render();
+  const inspectionDepth=uniformWrites.get('uDepthRange');
+  const inspectionFog=uniformWrites.get('uFogDensity');
+  assert(inspectionDepth[0]>.1&&inspectionDepth[1]>altitude+100,'inspection includes the terrain below');
+  assert(inspectionFog<.0025,'aerial haze density is adjusted for height');
+  el('fly').onclick();
+  pleiade.render();
+  assert.equal(pleiade.report().flight.eye[1],altitude);
+  assert.deepEqual(uniformWrites.get('uDepthRange'),inspectionDepth);
+  assert.equal(uniformWrites.get('uFogDensity'),inspectionFog);
+  el('flight-return').onclick();
+  pleiade.render();
+  assert.equal(uniformWrites.get('uCameraEye')[1],altitude,'return to previous sky inspection');
+  assert.deepEqual(uniformWrites.get('uDepthRange'),inspectionDepth);
+  assert.equal(uniformWrites.get('uFogDensity'),inspectionFog);
+}
+pleiade.useScene('shore');
+el('dive').onclick();pleiade.render();
+const diveEye=uniformWrites.get('uCameraEye');
+el('fly').onclick();pleiade.render();
+assert.equal(pleiade.state.underwater,false);
+assert(pleiade.report().flight.eye[1]>0);
+el('flight-return').onclick();pleiade.render();
+assert.equal(pleiade.state.underwater,true);
+assert.deepEqual(uniformWrites.get('uCameraEye'),diveEye);
+pleiade.setAtmosphere({altitude:6000});pleiade.render();
+assert.deepEqual(uniformWrites.get('uCameraEye'),diveEye,'underwater view takes precedence over inspection altitude');
+assert.deepEqual(uniformWrites.get('uDepthRange'),[.1,250]);
+assert.equal(uniformWrites.get('uFogDensity'),.0025);
+el('fly').onclick();
+pleiade.useScene('biomes');
+assert.equal(pleiade.report().flight,null);
+assert.equal(pleiade.state.underwater,false);
+const overRidge=fly([0,.65,0],Math.PI/2,[1,0,0],.25,45,(x)=>x>.7&&x<1.4?3:0);
+assert(overRidge[1]>3,'check intermediate ground heights as well as the destination');
+assert.equal(fly([44,5999,0],Math.PI/2,[1,0,1],.25,45,()=>0)[1],6000);
+assert.equal(fly([44,5999,0],Math.PI/2,[1,0,1],.25,45,()=>0)[0],45);
+pleiade.useScene('shore');
+pleiade.setAtmosphere({clouds:.5,altitude:1500});
+el('fly').onclick();pleiade.render();
+const startBuilds=pleiade.report().cloudCache.updates;
+windowEvents.keydown(key('KeyE'));
+for(let frame=1;frame<=30;frame++)nextFrame(550+frame*34);
+windowEvents.keyup(key('KeyE'));
+const builds=pleiade.report().cloudCache.updates-startBuilds;
+assert(builds>0&&builds<=8,'limit cloud rebuilds caused by camera motion');
+el('settings').onclick();
+windowEvents.keydown(key('Escape'));
+assert.equal(pleiade.report().flight,null,'Escape exits even with settings open');
+pleiade.setTime(4);
+pleiade.setAtmosphere({clouds:.8,altitude:350});
+el('fly').onclick();pleiade.render();
+const beforeCut=pleiade.report().cloudCache.updates;
+pleiade.setAtmosphere({clouds:.8,altitude:2200});
+el('fly').onclick();pleiade.render();
+assert.equal(pleiade.report().cloudCache.updates,beforeCut+1,'a new flight pose must refresh the panorama even with a frozen clock');
+console.log('PASS: flight pose, keys and touch cancellation, terrain clearance, depth range, cloud update rate and view restoration.');
+
+// Drive the actual inspection and flight controls to both vertical poles.
+pleiade.useScene('shore');
+el('flight-altitude').value=6000;el('flight-altitude').oninput();
+el('optical-fov').value=8;el('optical-fov').oninput();
+const arrow=key=>canvas.listeners.keydown({key,preventDefault(){}});
+const basis=()=>['uCameraRight','uCameraUp','uCameraForward'].map(name=>uniformWrites.get(name));
+const dot=(a,b)=>a.reduce((sum,x,i)=>sum+x*b[i],0);
+function checkPole(y){
+ pleiade.render();
+ const [right,up,forward]=basis();
+ assert(Math.abs(forward[0])+Math.abs(forward[2])<1e-8&&forward[1]===y,'look points directly along the vertical');
+ for(const axis of [right,up,forward])assert(Math.abs(dot(axis,axis)-1)<1e-6,'each view axis is unit length');
+ for(const pair of [[right,up],[right,forward],[up,forward]])assert(Math.abs(dot(...pair))<1e-6,'view axes remain perpendicular');
+ assert(Math.abs(right[0]*up[2]-right[2]*up[0]-y)<1e-6,'view does not flip when looking along the vertical');
+ return basis();
+}
+for(let i=0;i<24;i++)arrow('ArrowDown');
+const nadir=checkPole(-1);
+arrow('ArrowLeft');const turned=checkPole(-1);
+assert(dot(nadir[0],turned[0])<.999,'turning at nadir retains the requested heading');
+el('fly').onclick();
+assert.deepEqual(checkPole(-1),turned,'switch into flight at nadir without changing camera orientation');
+for(let i=0;i<40;i++)arrow('ArrowUp');
+checkPole(1);
+canvas.onpointerdown({pointerId:20,clientX:120,clientY:620});
+canvas.onpointermove({pointerId:20,clientX:144,clientY:30});
+canvas.onpointerup({pointerId:20});
+checkPole(-1);
+el('flight-return').onclick();
+assert.deepEqual(checkPole(-1),turned,'leaving flight restores the inspection heading');
+const beforePan=pleiade.report().camera.target.slice();
+canvas.onpointerdown({pointerId:21,clientX:120,clientY:300});
+canvas.onpointerdown({pointerId:22,clientX:180,clientY:300});
+canvas.onpointermove({pointerId:21,clientX:120,clientY:342});
+canvas.onpointermove({pointerId:22,clientX:180,clientY:342});
+canvas.onpointerup({pointerId:21});canvas.onpointerup({pointerId:22});
+const afterPan=pleiade.report().camera.target;
+assert(Math.hypot(afterPan[0]-beforePan[0],afterPan[2]-beforePan[2])>.1,'two-finger pan still moves the footprint at nadir');
+checkPole(-1);
+pleiade.useScene('shore');
+for(let i=0;i<24;i++)arrow('ArrowDown');
+assert.equal(pleiade.camera.pitch,.07,'the orbit camera keeps its ground-facing range');
+console.log('PASS: vertical camera axes, heading, flight handoff and panning at nadir.');
+
+// A turn at nadir keeps the eye and forward vector fixed, but rotates the frustum.
+Object.assign(globalThis,{innerWidth:700,innerHeight:292,devicePixelRatio:1});
+pleiade.setWaterMode('lake');
+pleiade.applyWorld(generateWorld(12345));
+pleiade.setQuality('eco');
+pleiade.setAtmosphere({altitude:46,fov:40});
+Object.assign(pleiade.camera,{target:[3,0,2],pitch:0,yaw:0});
+for(let i=0;i<16;i++)arrow('ArrowDown');
+pleiade.render();
+const beforeTurn=pleiade.report().render.trianglesPerPass;
+for(let i=0;i<16;i++)arrow('ArrowLeft');
+pleiade.render();
+const afterTurn=pleiade.report().render.trianglesPerPass;
+assert.notEqual(afterTurn,beforeTurn,'turning at nadir refreshes visibility');
+pleiade.setQuality('eco');pleiade.render();
+assert.equal(afterTurn,pleiade.report().render.trianglesPerPass,'the rotated view matches a full visibility refresh');
+
+pleiade.useBiome('snow');
+pleiade.camera.target=[-15,0,-58];
+const ridge=createBiome('snow',pleiade.world.seed,geometry).height(-15,-58);
+assert(ridge>2);
+pleiade.setAtmosphere({altitude:2});
+pleiade.render();
+assert(Math.abs(uniformWrites.get('uCameraEye')[1]-ridge-.65)<1e-6,'inspection eye clears the generated ridge');
+
+// Fixed camera and celestial clock isolate the vegetation-driven shadow cache.
+pleiade.setWaterMode('lake');
+pleiade.setClimate('summer','clear');
+pleiade.setTime(0);
+const shorePasses=shadowPasses;
+for(let frame=1;frame<30;frame++)pleiade.setTime(frame/30);
+assert.equal(shadowPasses,shorePasses+2,'clear-sky vegetation updates shadows at 3 Hz');
+pleiade.render();
+assert.equal(shadowPasses,shorePasses+2,'a paused frame reuses the shadow map');
+pleiade.setTime(.15);
+assert.equal(shadowPasses,shorePasses+3,'rewinding across steps updates to the requested phase');
+pleiade.setClimate('summer','rain');
+pleiade.setTime(.15);
+assert.equal(shadowPasses,shorePasses+4,'wind strength changes invalidate a frozen shadow map');
+pleiade.setTime(.35);
+assert.equal(shadowPasses,shorePasses+5,'rain keeps the same update cadence');
+el('shadows').checked=false;el('shadows').onchange();
+pleiade.setTime(.75);
+assert.equal(shadowPasses,shorePasses+5,'disabled shadows do not draw');
+el('shadows').checked=true;el('shadows').onchange();
+pleiade.render();
+pleiade.render();
+assert.equal(shadowPasses,shorePasses+6,'reenabling draws the current phase once');
+
+pleiade.useScene('building');
+pleiade.setTime(0);
+const buildingPasses=shadowPasses;
+for(let frame=1;frame<30;frame++)pleiade.setTime(frame/30);
+pleiade.setClimate('summer','clear');
+pleiade.render();
+pleiade.setTime(2);
+assert.equal(shadowPasses,buildingPasses,'static casters retain the map across dry and rainy wind steps');
+pleiade.setQuality('balanced');
+pleiade.render();
+assert.equal(shadowPasses,buildingPasses+1,'a new shadow texture still requires a pass');
+console.log('PASS: 3 Hz wind shadow updates, rewind, pause, wind strength changes, shadow toggle and static caching. Mock only.');

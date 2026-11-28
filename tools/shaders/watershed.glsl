@@ -1,0 +1,157 @@
+uniform sampler2D uWaterDepth;
+uniform vec3 uDrift[10];
+uniform int uUnderwater;
+uniform float uFlowTime;
+uniform vec3 uWaterContacts[10];
+uniform int uContactCount;
+
+// Integral of the local slowness along the channel. Foam travels with the
+// current and speeds up over the lip. Elapsed time cannot invert the flow.
+float channelTravel(float z){
+ if(uWaterMode!=2)return z/1.39;
+ float section=clamp(z+3.15,0.0,5.15);
+ return (z-section)/1.41+section/3.55;
+}
+vec2 waterFlow(vec2 p){
+ if(uWaterMode==0)return normalize(vec2(1.0,-shoreBankSlope(p.y,true)));
+ return normalize(vec2(-channelSlope(p.y),-1.0));
+}
+float obstacleFoam(vec2 at,vec2 delta,float radius,float time,float strength,float footprint){
+ vec2 flow=waterFlow(at),across=vec2(-flow.y,flow.x);
+ float downstream=dot(delta,flow),side=dot(delta,across);
+ // Air entrainment is strongest where the water meets the rock and fades
+ // along the wake. The wake widens as the bubbles leave the obstruction.
+ float lengthScale=max(.36,radius*2.7);
+ float width=max(.12,radius*.63)+max(0.0,downstream)*.28;
+ float wake=exp(-abs(downstream-radius*.20)/lengthScale-pow(abs(side)/width,1.65));
+ wake*=smoothstep(-radius*1.8,-radius*.5,downstream);
+ float heartbeat=uWaterMode==0?.46+.54*smoothstep(.02,.96,sin(swellPhase(shoreCoordinates(at,true),time))):.77;
+ float density=wake*strength*heartbeat;
+ if(density<.026)return 0.0;
+ vec2 moving=vec2(side,downstream-uFlowTime*(uWaterMode==0?.64:1.41));
+ return .83*foamLace(moving,density,footprint);
+}
+float channelFoam(vec2 p,float cascade,float pool,float footprint){
+ float side=p.x-channelCenter(p.y),stream=channelTravel(p.y)+uFlowTime;
+ float white=0.0;
+ if(cascade>.01){
+  // A thin veil carries shorter streaks with irregular breaks down the sheet.
+  float bend=(foamNoise(vec2(side*.86,stream*2.6)+4.2)-.5)*.34;
+  vec2 streaks=vec2(side*1.65+bend,stream*1.22);
+  float gaps=foamNoise(vec2(side*2.75,stream*2.82)+2.9);
+  white=cascade*(.025+.20*foamLace(streaks,cascade*mix(.29,.66,gaps),footprint));
+ }
+ if(uWaterMode==2){
+  // Start with a narrow strike at the foot, then widen through the pool.
+  float downstream=max(0.0,-2.5-p.y);
+  float strike=smoothstep(0.0,.48,downstream)*exp(-.48*downstream);
+  float width=1.25+2.55*pool;
+  float plume=(.76*strike+.41*pool)*(1.0-smoothstep(width*.32,width,abs(side)));
+  if(plume>.014){
+   float breakup=foamNoise(vec2(side*1.6,stream*1.72)+9.4);
+   white=max(white,.83*foamLace(vec2(side*1.15,stream*.93),plume*mix(.48,1.0,breakup),footprint));
+  }
+ }
+ for(int i=0;i<10;i++){
+  vec2 d=p-uDrift[i].xz;
+  float radius=dot(d*vec2(3.9,1.7),d*vec2(3.9,1.7));
+  if(radius>=1.0)continue;
+  float density=(1.0-smoothstep(.15,1.0,radius))*.44;
+  white=max(white,.66*foamLace(d+float(i)*7.7,density,footprint));
+ }
+ return white;
+}
+bool waterSurface(vec2 screen,out vec3 result,out float coverage,out float distance){
+ if(uWater==0)return false;
+ float depth=texture(uDepth,screen).r,surfaceDepth=texture(uWaterDepth,screen).r;
+ if(surfaceDepth>=.999999||cameraDepth(surfaceDepth)>=cameraDepth(depth)-.002)return false;
+ vec3 viewPoint=viewPosition(screen,surfaceDepth);
+ vec3 point=fromView(viewPoint);
+ distance=length(viewPoint);
+ float slope=waterSlope(point.z);
+ float cascade=uWaterMode==2?smoothstep(.20,.83,slope):0.0;
+ float pool=uWaterMode==2?plungePool(point.z):0.0;
+ // The falling sheet is agitated through the shoulders, where its slope
+ // approaches zero again at the lip and at the foot.
+ float fallBand=uWaterMode==2?smoothstep(-4.0,-2.5,point.z)*(1.0-smoothstep(.85,2.1,point.z)):0.0;
+ float agitation=smoothstep(.06,.90,max(fallBand,pool));
+ vec3 wave=waveField(point.xz);
+ float footprint=distance*uSkyPixelAngle;
+ float foam=0.0;
+ for(int i=0;i<10;i++){
+  if(i>=uContactCount)break;
+  vec3 obstacle=uWaterContacts[i];
+  vec2 delta=point.xz-obstacle.xy;
+  float obstacleDistance=length(delta);
+  if(obstacleDistance>obstacle.z+2.0)continue;
+  float edge=obstacleDistance-obstacle.z;
+  float spread=exp(-max(0.0,edge)*2.3)*smoothstep(-.10,.09,edge);
+  float phase=21.0*edge-uFlowTime*5.2+float(i)*2.31;
+  float energy=max(uWaveStrength,uWaterMode==0?0.0:.43);
+  float clear=1.0-smoothstep(.025,.17,footprint);
+  wave.yz+=delta/max(obstacleDistance,.001)*.095*energy*spread*cos(phase)*clear;
+  foam=max(foam,obstacleFoam(obstacle.xy,delta,obstacle.z,uWaterTime,energy,footprint));
+ }
+ // High frequency slopes fade with distance; the broad reflection follows the wave.
+ if(pool>.01){
+  float side=point.x-channelCenter(point.z),stream=channelTravel(point.z)+uFlowTime;
+  vec2 r=vec2(side*2.7+stream*4.3,side*3.9-stream*5.2+.6);
+  wave.yz+=pool*vec2(.050*sin(r.x),.074*cos(r.y));
+ }
+ float rippleFilter=mix(1.0,.30,smoothstep(.05,.26,footprint));
+ vec3 n=normalize(vec3(-wave.y*rippleFilter,1.0,-slope-wave.z*rippleFilter));
+ vec3 v=normalize(uCameraEye-point);
+ bool below=dot(v,n)<0.0;
+ if(below)n=-n;
+ vec3 reflected=reflect(-v,n);
+ vec3 receiver=depth<.999999?fromView(viewPosition(screen,depth)):point-v*12.0;
+ float rayPath=length(receiver-point),path=rayPath;
+ // Reproject a short segment of the refracted ray in camera space.
+ vec3 bent=refract(-v,n,below?1.333:1.0/1.333);
+ vec3 sampleView=toView(point+bent*min(path,1.65));
+ vec2 shift=sampleView.xy/(max(.1,-sampleView.z))*uProjectionScale*.5+.5-screen;
+ vec2 refracted=clamp(screen+clamp(shift,vec2(-.034),vec2(.034)),vec2(.001),vec2(.999));
+ float rd=texture(uDepth,refracted).r,refractWeight=0.0;
+ if(rd<.999999&&rd>surfaceDepth&&dot(bent,bent)>.01){
+  vec3 hit=fromView(viewPosition(refracted,rd));
+  float depthBelow=waterHeight(hit.xz)-hit.y;
+  float balance=length(hit-point)/max(.01,rayPath);
+  refractWeight=smoothstep(.008,.20,depthBelow)*smoothstep(.025,.25,rayPath)
+                *(1.0-smoothstep(1.25,2.0,balance));
+  path=mix(rayPath,length(hit-point),refractWeight);
+ }
+ vec3 bed=texture(uDirect,screen).rgb+texture(uAmbient,screen).rgb;
+ if(refractWeight>.001){
+  vec3 displaced=texture(uDirect,refracted).rgb+texture(uAmbient,refracted).rgb;
+  bed=mix(bed,displaced,refractWeight);
+ }
+ vec3 trans=exp(-(vec3(.51,.25,.17)+uTurbidity)*min(path,15.0));
+ vec3 body=bed*trans+vec3(.021,.084,.105)*(1.0-trans)*mix(.11,1.0,uDaylight);
+ vec3 environment=cloudSky(celestialSky(reflected),point,reflected);
+ vec2 hitUV;float confidence;
+ if(!below&&uWaterSSR!=0&&waterReflection(point+n*.06,reflected,hitUV,confidence)){
+  environment=mix(environment,texture(uDirect,hitUV).rgb+texture(uAmbient,hitUV).rgb,confidence);
+ }
+ if(agitation>0.0){
+  // In the aerated flow the reflected sun disk spreads across many ripples.
+  float peak=max(environment.r,max(environment.g,environment.b));
+  environment*=mix(1.0,.86/max(.86,peak),agitation);
+ }
+ float fresnel=waterFresnel(dot(n,v));
+ vec3 h=normalize(v+uSkyLightDirection);
+ float nt=max(dot(n,h),0.0);
+ float sharpness=mix(425.0,105.0,max(uWaveStrength,smoothstep(.04,.23,footprint)))*mix(1.0,.58,smoothstep(.1,.9,slope));
+ float glint=pow(nt,sharpness)*.61+pow(nt,max(35.0,sharpness*.22))*.071;
+ if(agitation>0.0)glint=mix(glint,.13*pow(nt,max(22.0,sharpness*.16)),agitation);
+ coverage=smoothstep(.003,.070,rayPath);
+ if(below){
+  result=mix(vec3(.013,.050,.058),environment,.45)*mix(.13,.65,uDaylight);
+ }else{
+  foam=max(foam,uWaterMode==0?lakeFoam(point.xz,uWaterTime,uWaveStrength,true,footprint)
+                            :channelFoam(point.xz,cascade,pool,footprint));
+  coverage=max(coverage,foam*smoothstep(.004,.052,rayPath));
+  vec3 water=mix(body,environment,fresnel)+uLightColor*glint;
+  result=applyWaterFoam(water,foam,uLightColor,uSkyAmbient,max(dot(n,uSkyLightDirection),0.0));
+ }
+ return true;
+}

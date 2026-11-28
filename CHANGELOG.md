@@ -1,3 +1,225 @@
+# Versión de prueba 0.000.00.035 — sombras de vegetación con viento
+
+- La sombra de las ramas y hojas que mueve el viento se actualiza también con cielo despejado. El mapa de sombras se reutiliza entre actualizaciones.
+
+---
+
+# Versión de prueba 0.000.00.034 — partículas en la superficie del agua
+
+- En lago, río y cascada, la profundidad de la superficie oculta la lluvia, la nieve y las hojas que quedan detrás. Las partículas por delante siguen visibles. La oclusión responde al control que muestra u oculta el agua.
+
+---
+
+# Versión de prueba 0.000.00.033 — lluvia y nieve al mover la cámara
+
+- Las gotas y los copos conservan su trayectoria en el mundo al desplazar la cámara. Las partículas se desvanecen al salir de la zona visible y vuelven a aparecer de forma gradual al reciclarse.
+- La lluvia cae más deprisa que la nieve. La cantidad de precipitación sigue respondiendo a la cobertura de nubes.
+
+---
+
+# Candidato 0.000.00.032 — colisiones del patio en primera persona
+
+- El recorrido nativo `--walk-demo` distingue el suelo, los peldaños, los pilares y la cara inferior del dintel. Puedes pasar por el vano a pie, golpear el dintel si saltas debajo y aterrizar sobre una plataforma.
+
+---
+
+# Versión de prueba 0.000.00.031 — nieve, tiempo e inspección
+
+- La nieve sigue la pendiente del suelo y conserva la transición húmeda junto al agua. La textura cambia el espesor aparente de forma suave.
+- La cobertura regula la cantidad de lluvia o nieve y la humedad del suelo. Las dos capas de nubes cambian de forma y se desplazan con el reloj celeste detenido.
+- La cámara de inspección conserva un margen sobre el terreno o el agua al descender o desplazar la vista.
+
+---
+
+# Versión de prueba 0.000.00.030 — puente romano
+
+- Río y Cascada permiten alternar entre la pasarela de madera y un puente de piedra de arco semicircular. Los estribos se apoyan fuera del cauce y los accesos siguen el relieve de la semilla. La prueba de recorrido con colisiones queda pendiente.
+- En una vista cenital, girar la cámara actualiza la selección de geometría visible aunque el ojo siga apuntando verticalmente. **Ver cruce** amplía el campo de visión cuando el zoom de inspección podía recortar el vano.
+
+---
+
+# Versión de prueba 0.000.00.029 — encuadres verticales en vuelo e inspección
+
+- La cámara de inspección y la de vuelo permiten mirar exactamente hacia arriba o hacia abajo. La orientación conserva el rumbo al alcanzar la vertical y al alternar entre ambas cámaras.
+- El desplazamiento con dos dedos conserva la dirección en una toma cenital, incluso con el zoom óptico de 8°.
+
+---
+
+# Versión de prueba 0.000.00.028 — pasarela aguas arriba
+
+- Río y Cascada incorporan una pasarela de madera de un solo vano. El generador alinea el cruce con el cauce, asienta estribos y accesos en ambas orillas y deja un margen bajo las vigas sobre la cresta máxima y la crecida de diseño.
+- El botón **Ver pasarela** encuadra el prototipo para inspeccionarlo en el visor WebGL. La prueba de recorrido con colisiones queda pendiente.
+
+---
+
+# Versión de prueba 0.000.00.027 — río, cascada y oleaje del lago
+
+- Las rocas marrones del cauce descansan en el fondo triangulado y asoman por encima del agua.
+- El agua cae en una poza más ancha y profunda que se estrecha aguas abajo. El flujo arrastra vetas por la caída y espuma desde el punto de impacto. El agua oscurece las orillas y las rocas próximas y modifica su rugosidad.
+- El oleaje del lago usa crestas más largas, menor desplazamiento vertical y menos espuma persistente. La opción de agua en calma conserva la superficie plana.
+
+---
+
+# Versión de prueba 0.000.00.026 — orilla continua del lago
+
+- El relieve de las colinas se incorpora gradualmente detrás de la playa. La orilla visible sigue el encuentro de las olas con el terreno y el borde de la malla queda cubierto por suelo seco.
+
+---
+
+# Versión de prueba 0.000.00.025 — vista de inspección atmosférica
+
+- La cámara de inspección conserva el terreno y el agua visibles al ganar altura. Comparte el alcance de la proyección y la densidad de bruma con la cámara de vuelo, hasta el límite de 6 km de la escena.
+
+---
+
+# Versión de prueba 0.000.00.024 — iluminación del volumen de nubes
+
+- La estrella y el satélite ficticios iluminan el volumen de nubes antes de calcular su atenuación local. El terreno y el brillo directo del agua conservan la luz filtrada por la nubosidad.
+- Al importar un mundo con otra duración del día, el visor actualiza la panorámica de nubes aunque el tiempo de su animación coincida.
+
+---
+
+# Versión de prueba 0.000.00.023 — nubes delante del vidrio
+
+- El reflejo de las ventanas recibe la atenuación y la luz dispersada por las nubes entre la cámara y el vidrio. La transparencia sigue mostrando el interior o el fondo compuesto.
+
+---
+
+# Versión de prueba 0.000.00.022 — nieve y ramas
+
+- En el lago, río y cascada, el material del fondo sumergido conserva su aspecto en invierno y durante las nevadas. La nieve se acumula en las superficies expuestas al aire.
+- El visor conserva las ramas al instanciar los árboles de Orilla y Biomas. Al alejarse de la cámara, cambia a mallas de madera más ligeras según su tamaño en pantalla.
+
+---
+
+# Versión de prueba 0.000.00.021 — nubes por delante del terreno
+
+- En el visor WebGL, el terreno y el agua se atenúan al mirarlos a través de una nube. El recorrido termina en la superficie visible y conserva despejados los objetos situados antes de la capa.
+- La dispersión se mezcla con la luz de la escena antes del mapeo tonal. El agua conserva su reflejo del cielo y recibe la atenuación hasta la cámara.
+- La caché panorámica se reutiliza cuando la superficie queda detrás de todas las capas atravesadas. Si la superficie corta una capa, el visor integra sólo el tramo visible.
+- Al iniciar un vuelo tras cambiar la altura de inspección, la panorámica se actualiza aunque el reloj esté detenido.
+
+---
+
+# Versión de prueba 0.000.00.020 — órdenes de grupo
+
+- En la demo estratégica de escritorio, Mayús+clic añade exploradores a la selección. Las órdenes de grupo asignan destinos distintos en el terreno cargado. Una formación inaccesible conserva las rutas anteriores.
+- La selección usa la cámara del fotograma presentado. La niebla comparte la visión de los exploradores y conserva el terreno explorado.
+- El visor y la base C++ comparten la numeración de la versión.
+
+---
+
+# Versión de prueba 0.000.00.019 — vuelo atmosférico
+
+- El visor permite volar con teclado y controles táctiles. La cámara parte de la vista actual, mantiene margen sobre terreno y agua y recupera la cámara anterior al salir.
+- La proyección y el shader de composición comparten la distancia de recorte. El agua, la refracción y el terreno conservan la profundidad al ganar altura.
+- La caché de nubes reutiliza el panorama durante desplazamientos cortos. El agua y el vidrio calculan las nubes desde la superficie cuando el observador está mucho más alto.
+
+---
+
+# Versión de prueba 0.000.00.018 — cámaras, cielo y escala
+
+- La base C++ incorpora un recorrido jugable en primera persona con simulación a 60 Hz, carrera, salto, escalones y colisión con los bloques del patio. La vista estratégica puede orbitar, seleccionar al explorador y dirigirlo por terreno navegable.
+- La secuencia de prueba usa el renderer en tiempo real. Los fotogramas clave gobiernan posición, objetivo y campo de visión. La pista conserva el tiempo de los cortes y admite consulta a un tiempo específico. El campo de visión también gobierna el detalle proyectado.
+- El mapa de sombras nativo se alinea con una cuadrícula del mundo y mantiene la escala al orbitar. El sector residente aporta sombras aunque un objeto quede fuera de cámara.
+- El visor comparte el cielo ficticio entre fondo, agua y vidrio. Ajustes permite cambiar el radio aparente de la estrella principal y del satélite. El mundo exportado conserva ambos valores y los mundos de versiones anteriores recuperan sus tamaños previos.
+- La base de coordenadas sectorizadas preserva desplazamientos milimétricos locales a 2,5 millones de años luz del origen. Las escenas espaciales y la navegación a esa escala quedan en desarrollo.
+- La compilación de Windows ya admite las mallas de vegetación lejana. El paquete x64 incluye los recorridos de primera persona, estrategia y cinemática.
+
+Pasaron seis pruebas C++, las del visor, la carga de mundos antiguos y la exportación. Se verificaron los reflejos en Chromium WebGL 2 por software. Con Mesa y entradas SDL se comprobó el salto, el recorrido por los escalones, la selección del explorador y una orden de movimiento. Quedan pendientes la ejecución en Windows y las mediciones en GPU física y tableta. [Dos fotogramas de la cinemática](tests/results/visual-018/cinematica.jpg)
+
+---
+
+# Versión de prueba 0.000.00.017 — oleaje y espuma
+
+- En el lago, las crestas avanzan hacia tierra y se frenan al entrar en aguas someras. La humedad del terreno usa la misma fase que la superficie y conserva el rastro del agua durante la retirada.
+- La espuma forma manchas con huecos. Nace cerca de la rompiente y de las rocas, raíces y ramas que cortan la superficie. En la cascada se arrastra por la caída y se ensancha al pie antes de perder densidad corriente abajo.
+- El visor concentra más vértices en la orilla y el salto de agua. La refracción se proyecta desde la cámara y pierde intensidad al acercarse al borde. La escena de orilla en C++ comparte el cálculo del oleaje y la espuma del lago.
+
+Se muestreó el shader en seis perfiles de orilla y se compararon fotogramas de la cascada, el río, la lluvia y la nieve en Chromium WebGL 2 por software. La escena de orilla se ejecutó en C++ con Mesa. El agua usa un modelo de superficie parametrizado. Queda pendiente medir el rendimiento en la tableta. [Orilla y cascada](tests/results/visual-017/orilla-y-cascada.jpg)
+
+Referencias físicas. [Oleaje en aguas someras, NOAA](https://repository.library.noaa.gov/view/noaa/38235/noaa_38235_DS1.pdf) · [Evolución de la espuma en olas rompientes, JGR Oceans](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2023JC020193).
+
+---
+
+# Versión de prueba 0.000.00.016 — corriente, precipitación y copas
+
+- Las ondas tienen un reloj propio. La corriente, la nieve, la lluvia y las ramas desprendidas siguen su curso aunque desactives la ondulación.
+- Las piedras, raíces y ramas que cortan la superficie generan ondas locales. La espuma aumenta con la intensidad y la cascada acumula agua aireada al pie de la caída. El efecto usa el perfil del cauce y los objetos que intersectan la superficie.
+- Las copas pasan antes a la geometría intermedia y mezclan los cambios según su tamaño proyectado. El renderer C++ aplica tres niveles en primera persona y en vista estratégica.
+
+Se comprobó el cambio entre fotogramas de río, cascada, nieve y lluvia en Chromium WebGL 2 por software. También pasaron las pruebas de estados del visor y la base C++. Queda pendiente el rendimiento en el dispositivo.
+
+---
+
+# Versión de prueba 0.000.00.015 — sombras y contacto
+
+- El filtro de sombras de nueve lecturas limita la corrección en superficies rasantes y funde el borde de cobertura. El renderer nativo usa pesos continuos en los bordes de texel y la normal geométrica para evaluar la sombra de la luz solar.
+- La cámara estratégica nativa concentra el mapa en el área de juego y conserva la contribución de los objetos próximos fuera de pantalla. La oclusión de contacto reparte sus muestras en dos distancias para alcanzar los detalles pequeños y los objetos cercanos.
+
+Se han comprobado los shaders y la continuidad del filtro, el visor en Chromium WebGL 2 por software y la compilación de la base C++. Queda pendiente medir el rendimiento en la tablet.
+
+---
+
+# Versión de prueba 0.000.00.014 — vivienda y teja
+
+- Edificación incorpora una casa con cubierta de cuatro aguas, aleros, chimenea y huecos de ventana. Su cubierta usa una malla reutilizable de Pléiade.
+- El material de teja mide las hiladas en metros y filtra el relieve conforme las tejas quedan por debajo de un píxel. La misma malla y material se integraron en las viviendas de Neón de Asfalto 3D.
+
+Se verificaron el visor con Chromium WebGL 2 por software, las pruebas de escritorio y la firma del APK. El rendimiento en tableta queda pendiente. [Captura](tests/results/visual-014/casa-de-teja.jpg)
+
+---
+
+# Versión de prueba 0.000.00.013 — ventanas, vegetación y cuenca
+
+- Los ocho paños de la cabaña se montan en huecos reales del muro y muestran el interior a través de una capa con reflejo del entorno. La veta de la madera mantiene una escala en metros. Edificación incorpora una casa de piedra y un refugio abierto.
+- La mezcla de nueve variantes de los suelos se aplica en coordenadas continuas. El color, las normales y la rugosidad comparten los pesos de mezcla y la escala. Las nueve piezas geométricas de cada bioma conservan alturas y normales coincidentes en los bordes.
+- Las copas tienen tres niveles de detalle y transiciones por tamaño proyectado. La corteza del abedul usa la altura y el ángulo alrededor de cada tronco para distribuir lenticelas cortas, zonas de papel desprendido y cicatrices desde la base hasta la copa. Las ramas leñosas se afinan y los puntos de rotura quedan en los datos del ejemplar.
+- Orilla incorpora lago, río y cascada en una cuenca de 104 m de lado. Los flotantes avanzan con el caudal incluso con oleaje en Calma. El agua tiene profundidad propia y admite una cámara sumergida. El caudal sigue un cauce parametrizado.
+- La estación modifica el follaje del abedul, que pierde hojas en otoño. Las coníferas conservan la copa. Lluvia y nieve modifican el ambiente y el suelo. En Materiales se puede probar un impacto sobre una rama que se desprende junto con sus ramillas y hojas.
+
+El cambio se verificó en Chromium WebGL 2 por software, con cámaras iguales para comparar la cabaña, el suelo y la vegetación con la `.012`. También se comprobó el tronco del abedul desde varios ángulos y con las sombras desactivadas. El visor Android incluye los cambios. Quedan pendientes las mediciones en la tablet, la integración de la cuenca y el clima en Windows, un sistema general de fluidos y colisiones con entidades de juego. [Abedul](tests/results/visual-013/abedul.jpg) · [Primer plano](tests/results/visual-013/comparacion.jpg) · [Cuenca y clima](tests/results/visual-013/cuenca.jpg).
+
+Referencias de la corteza, las hojas y el porte del abedul. [Royal Horticultural Society](https://www.rhs.org.uk/plants/2261/betula-pendula/details) · [Kew](https://powo.science.kew.org/taxon/urn%3Alsid%3Aipni.org%3Anames%3A295174-1/general-information) · [Forest Research](https://www.forestresearch.gov.uk/tools-and-resources/tree-species-database/131561-silver-birch-sbi-2/) · [Atlas europeo de especies forestales](https://forest.jrc.ec.europa.eu/media/atlas/Betula_spp.pdf) · [University College Cork](https://www.ucc.ie/en/tree-explorers/trees/a-z/betulapendula/).
+
+---
+
+# Versión de prueba 0.000.00.012 — copas, suelo y vidrio
+
+- El bosque templado, el bambusal, los núcleos de pícea y el trópico se generan por grupos separados por claros. La pendiente, la humedad y la distancia a otros árboles condicionan cada ejemplar. Cada grupo puede incluir árboles maduros, regeneración y sotobosque. El trópico combina palmeras y árboles de frondosa tropical.
+- Los pinos concentran los fascículos en varios brotes terminales. La pícea tiene ramillas alternas y el abedul más hojas por rama. El enebro oculta la base con brotes bajos y ramas más finas. Para mantener el coste, los helechos y las ramas de hoja ancha a distancia usan siluetas recortadas con mapas de opacidad. El presupuesto de agujas cercanas se mantiene en 14.000 triángulos adicionales en Ahorro.
+- Cada bioma ensambla nueve piezas. Cada variante altera el relieve interior y reduce su influencia a cero junto al borde. Se pueden permutar con el mismo perfil de altura. Los materiales de suelo, incluidos los de Orilla y Edificación, seleccionan nueve fases de muestreo por semilla y las funden con una proyección continua en metros. Las montañas combinan macizos de distinta anchura y altura, con collados, laderas y un valle con la cabaña.
+- La veta de la cabaña se mide en metros en el eje de cada pieza. El testero tiene un muestreo distinto. Cada ventana tiene cuatro paños con reflexión del entorno aproximada por ángulo y hora del mundo, más un fondo oscuro de interior. Los cristales no actúan como proyectores opacos de sombras. El reflejo es analítico y prescinde de capturar la habitación o los objetos vecinos.
+- El trópico incluye lianas que cuelgan de copas, crecen desde el suelo y se enrollan en troncos, además de puentes cortos y trenzas entre vecinos. Su crecimiento y posición se calculan al generar la escena.
+
+Las pruebas compararon la `.011` y la `.012` en Chromium WebGL 2 por software. La cabaña y la vegetación de cerca se capturaron desde las mismas cámaras. Los biomas usan el encuadre inicial de su versión. Se verificaron los bordes de las nueve piezas en tres semillas, incluida una permutación de las variantes. En Ahorro, las vistas iniciales del bosque y del trópico enviaron unos 385.000 y 218.000 triángulos por pasada. Queda pendiente medir la `.012` en el móvil. [Paisajes](tests/results/visual-012/paisajes.jpg) · [Primer plano](tests/results/visual-012/primer-plano.jpg).
+
+La corteza del pino incorpora mapas escaneados de Dimitrios Savva, con licencia CC0, y los usa en la biblioteca de Blender. Las referencias de diseño incluyen fotos y descripciones de las especies, la estructura de las copas y los tipos de relieve. [Corteza de pino](https://polyhaven.com/a/pine_bark) · [Pino silvestre](https://www.forestryengland.uk/article/scots-pine) · [Abedul](https://growwild.kew.org/plants/silver-birch) · [Claros y agrupaciones](https://research.fs.usda.gov/treesearch/44828) · [Estratos de la selva](https://striresearch.si.edu/rainforest/home/rainforest-layers/) · [Lianas](https://www.si.edu/newsdesk/releases/lianas-stifle-tree-fruit-and-seed-production-tropical-forests) · [Bambú](https://www.aces.edu/wp-content/uploads/2020/11/FOR-2088-Bamboo-Growth-and-Control_110520L-A.pdf) · [Relieve glaciar](https://www.nps.gov/glac/learn/nature/glacial-geology.htm) · [Construcción de madera en Ballenberg](https://www.holzbaukultur.ch/de/bauten/haus-matten-3856_01.php).
+
+---
+
+# Versión de prueba 0.000.00.011 — agujas, lianas y cubierta
+
+- Las coníferas cercanas usan agujas individuales también en Ahorro, con un presupuesto de 14.000 triángulos adicionales por pasada. El pino tiene fascículos en pares y corteza con placas y grietas. El abedul tiene lenticelas irregulares y una transición oscura hacia la base. El enebro rastrero tiene más follaje en la unión de sus brotes.
+- En el trópico, la humedad local agrupa las palmeras. Las frondes orientan su arco respecto a la copa y su punta cae con mayor claridad en las hojas maduras. Las lianas enlazan dos palmeras cercanas con una curva sostenida en ambas copas. Algunas se trenzan por pares. Una palmera aislada lleva una liana colgante sin conexión a sus vecinos.
+- La cubierta de la cabaña solapa ambas pendientes con el frontón y añade remates, cabios y una puerta de tablas verticales. La proyección del mapa de sombras de Edificación cubre 24 m de ancho, frente a 64 m en la `.010`, a igual tamaño de textura. Se mantiene el filtro de nueve muestras.
+- Las dunas varían de altura y longitud. El mapa de arena reduce el contraste y rompe la repetición de las ondulaciones. Las montañas usan crestas más redondeadas y desplazan el relieve abrupto hacia el fondo. La altura de colocación de las rocas se interpola sobre los triángulos del terreno.
+- Pruebas C++, GLSL ES y estado del visor completadas. Se compararon ambas compilaciones con Chromium WebGL 2 por software a 638 × 1280 en Detalle y se verificaron firma y contenido de la APK. Los FPS de la `.011` quedan por medir en Android.
+
+Referencias fotográficas. [Pino silvestre, Woodland Trust](https://www.woodlandtrust.org.uk/trees-woods-and-wildlife/british-trees/a-z-of-british-trees/scots-pine/) · [Corteza de abedul, Kew](https://growwild.kew.org/plants/silver-birch) · [Palmera y frondes, UF/IFAS](https://gardeningsolutions.ifas.ufl.edu/mastergardener/resources/plantid/fruits-and-nuts/coconut/) · [Helecho macho, Plantarium](https://www.plantarium.ru/page/image/id/810263.html) · [Lianas, bioGraphic](https://www.biographic.com/rogues-of-the-rainforest/) · [Construcción de madera en Ballenberg](https://www.holzbaukultur.ch/de/bauten/haus-matten-3856_01.php).
+
+---
+
+# Versión de prueba 0.000.00.010 — materiales, vegetación y biomas
+
+- Las coníferas tienen agujas curvas y el pino distribuye las agujas en pares. El abedul lleva hojas anchas con nervaduras. El helecho tiene frondes arqueadas con pinnas individuales y la campanilla tiene pétalos curvos. Una superficie continua recorre cada tronco y el pino mezcla gradualmente la corteza basal con la rojiza. Las secciones y sus relaciones siguen disponibles en la escena de origen para localizar futuras roturas.
+- `assets/blender/pleiade-surfaces.blend` contiene 16 materiales editables. El visor carga dos atlas de capas para color y opacidad, y normales tangentes y rugosidad. La cabaña usa madera, mampostería, biseles y apoyos parcialmente enterrados. Las rocas varían en tamaño, forma y posición.
+- Cinco escenas de terreno acotado se regeneran con la semilla del mundo. Las crestas, las dunas y el suelo se forman por altura y pendiente. La vegetación se distribuye según el hábitat local. Ahorro usa follaje, troncos y cañas de menor densidad geométrica. Equilibrado y Detalle reservan un presupuesto para sustituir esas mallas cuando ocupan más pantalla.
+- El historial de PC `0.003.0.17` documenta una corrección parcial del autosombreado y una franja dentada pendiente en el contacto con el suelo. La comparación del visor `.009` y `.010` usa una cámara fija por versión, sombras activadas y desactivadas, y Chromium WebGL 2 con SwiftShader a 680 × 920 y mapa de 1024². En esas capturas no aparece una franja triangular repetida como la del informe original de PC. Las escenas tienen geometría distinta. Queda pendiente repetir la escena original de Windows y comprobar el controlador de Android. [Comparación](tests/results/contact-010/comparacion.jpg)
+- Pasaron las pruebas C++ de jerarquía de plantas, los programas GLSL ES, las pruebas del visor y el puente Android simulado. Los cinco biomas renderizaron con WebGL 2 sin errores. La APK firmada se verificó junto con los recursos incluidos. Instalación y rendimiento en POCO F7 y Galaxy Tab A9+ pendientes.
+
+---
+
 # Versión de prueba 0.000.00.009 — vegetación procedural y APK Android
 
 La orilla y el modo detallado del mundo usan pícea europea, pino silvestre, enebro rastrero, helecho macho y campanilla. Cada planta se regenera con su semilla. La pícea tiene copa cónica con ramas bajas que caen y puntas superiores ascendentes. El pino forma una copa más alta e irregular, con agujas en pares y corteza rojiza en la parte alta. El enebro conserva las agujas en grupos de tres, el helecho forma una roseta de frondes divididas y la campanilla tiene hojas basales redondeadas y flores colgantes de cinco lóbulos.

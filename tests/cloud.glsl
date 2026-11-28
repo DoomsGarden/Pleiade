@@ -5,10 +5,14 @@ precision highp sampler2D;
 in vec2 uv;out vec4 frag;
 uniform vec3 uSunDirection;
 uniform vec3 uMoonDirection;
+uniform float uSunRadius;
+uniform float uMoonRadius;
 uniform vec3 uLightColor;
+uniform vec3 uCloudLightColor;
 uniform vec3 uSkyLightDirection;
 uniform float uDaylight;
 uniform float uSkyAmbient;
+uniform float uCloudAmbient;
 uniform float uStarAngle;
 uniform float uLatitude;
 uniform sampler2D uStars;
@@ -41,27 +45,42 @@ vec3 pointStars(vec3 q){
 }
 float cloudDensity(vec3 p,float base,float top){
  float height=(p.y-base)/(top-base);if(height<=0.0||height>=1.0)return 0.0;
- vec3 q=p*.0012+vec3(uCloudTime*.0008,0,uCloudTime*.0003);
- float shape=skyNoise(q)*.70+skyNoise(q*2.7)*.30;
+ vec3 wind=base<2000.0?vec3(.006,0.0,.0025):vec3(.009,0.0,-.002);
+ vec3 q=p*.0012+wind*uCloudTime;
+ vec3 detail=q*2.7+vec3(.002,.005,-.005)*uCloudTime;
+ float shape=skyNoise(q)*.70+skyNoise(detail)*.30;
  return smoothstep(1.0-uCloudAmount*.70,1.0-uCloudAmount*.70+.17,shape)*smoothstep(0.0,.18,height)*(1.0-smoothstep(.65,1.0,height));
 }
-vec4 cloudVolume(vec3 origin,vec3 direction){
- if(uCloudAmount<=0.0)return vec4(0,0,0,1);vec3 d=normalize(direction),accum=vec3(0);float trans=1.0;
+const float cloudReach=6000.0;
+const vec4 clearCloud=vec4(0.0,0.0,0.0,1.0);
+vec2 cloudHeights(int layer){return layer==0?vec2(900.0,1700.0):vec2(3200.0,3650.0);}
+vec2 cloudInterval(float y,float dy,vec2 heights){
+ if(abs(dy)<.000001)return y>heights.x&&y<heights.y?vec2(0.0,cloudReach):vec2(0.0);
+ vec2 hits=(heights-y)/dy;
+ return clamp(vec2(min(hits.x,hits.y),max(hits.x,hits.y)),0.0,cloudReach);
+}
+vec4 cloudVolume(vec3 origin,vec3 d,float distance){
+ if(uCloudAmount<=0.0)return clearCloud;
+ vec3 accum=vec3(0.0);float trans=1.0;
  // A bounded atmospheric volume: two height layers, integrated front to back.
  for(int layer=0;layer<2;layer++){
- int index=d.y>=0.0?layer:1-layer;float base=index==0?900.0:3200.0,top=index==0?1700.0:3650.0;
- float dy=abs(d.y)<.0001?(d.y<0.0?-.0001:.0001):d.y;
- float a=(base-origin.y)/dy,b=(top-origin.y)/dy;
- float entry=max(0.0,min(a,b)),end=min(6000.0,max(a,b));if(end<=entry)continue;
- float stepSize=(end-entry)/24.0;
+ vec2 heights=cloudHeights(d.y>=0.0?layer:1-layer),interval=cloudInterval(origin.y,d.y,heights);
+ float end=min(distance,interval.y);if(end<=interval.x)continue;
+ // Keep the same samples up to the last, possibly partial, step.
+ float stepSize=(interval.y-interval.x)/24.0;
+ float jitter=.25+.5*skyHash(floor(d*2000.0));
  for(int i=0;i<24;i++){
- vec3 pos=origin+d*(entry+(float(i)+.25+.5*skyHash(floor(d*2000.0)))*stepSize);float den=cloudDensity(pos,base,top);
- float extinction=den*.004,alpha=1.0-exp(-extinction*stepSize);
- float toward=cloudDensity(pos+uSkyLightDirection*220.0,base,top);
+ float start=interval.x+float(i)*stepSize;
+ float segment=min(stepSize,end-start);if(segment<=0.0)break;
+ vec3 pos=origin+d*(start+jitter*segment);
+ float extinction=cloudDensity(pos,heights.x,heights.y)*.004;
+ float alpha=1.0-exp(-extinction*segment);
+ float toward=cloudDensity(pos+uSkyLightDirection*220.0,heights.x,heights.y);
  float light=exp(-toward*2.0),forward=pow(max(dot(d,uSkyLightDirection),0.0),12.0);
- vec3 scatter=vec3(.10,.14,.20)*uSkyAmbient+uLightColor*.16*(light+.35*forward);
+ // The cloud samples already estimate local extinction toward the light.
+ vec3 scatter=vec3(.10,.14,.20)*uCloudAmbient+uCloudLightColor*.16*(light+.35*forward);
  accum+=trans*alpha*scatter;trans*=1.0-alpha;if(trans<.015)break;
  }}return vec4(accum,trans);
 }
 
-void main(){float lon=uv.x*6.28318530718,lat=(uv.y-.5)*3.14159265359;vec3 ray=vec3(cos(lat)*cos(lon),sin(lat),cos(lat)*sin(lon));frag=cloudVolume(uSkyObserver,ray);}
+void main(){float lon=uv.x*6.28318530718,lat=(uv.y-.5)*3.14159265359;vec3 ray=vec3(cos(lat)*cos(lon),sin(lat),cos(lat)*sin(lon));frag=cloudVolume(uSkyObserver,ray,cloudReach);}
